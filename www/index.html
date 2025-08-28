@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AstroConsole</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <script type="text/javascript" src="http://code.jquery.com/jquery-1.9.1.min.js" charset="utf-8"></script>
+  <script type="text/javascript" src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+</head>
+<body>
+  <main>
+    <div class="card" id="finderscopeCard">
+      <h2>Finderscope</h2>
+
+      <div id="finderscopeBorder">
+        <img id="finderscope" width="500" height="300" />
+        <canvas id="finderscopeCanvas"></canvas>
+        <button class="up" data-direction="up">▲</button>
+        <button class="left" data-direction="left">◀</button>
+        <button class="right" data-direction="right">▶</button>
+        <button class="down" data-direction="down">▼</button>
+      </div>
+    </div>
+
+    <div class="card" id="atlasCard">
+      <h2>Sky Map</h2>
+
+      <div id="aladin"></div>
+
+      <div id="atlasMountControls" class="control-box frame">
+        <button id="recenter">🔒 Lock</button>
+        <button id="sync">🔄 Sync</button>
+        <button id="goto">🎯 Goto</button>
+
+        <div id="atlasButtonsOverlay" class="card-overlay">
+          <span id="atlasButtonsOverlayMessage">🔌 Mount Disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="mountCard">
+      <h2><span id="mountTitle">Mount</span> <button id="mountReconnect" title="Reconnect">🔌</button></h2>
+
+      <div class="columns">
+        <div class="status">
+          <div class="pair"><span class="label">Status:</span> <span id="mountStatus">Idle</span></div>
+          <div class="pair"></div>
+          <div class="pair"><span class="label">Lon:</span> <span id="long"></span></div>
+          <div class="pair"><span class="label">Lat:</span> <span id="lat"></span></div>
+          <div class="pair"><span class="label">RA:</span> <span id="ra"></span></div>
+          <div class="pair"><span class="label">Dec:</span> <span id="dec"></span></div>
+          <div class="pair"><span class="label">Az:</span> <span id="az"></span></div>
+          <div class="pair"><span class="label">Alt:</span> <span id="alt"></span></div>
+        </div>
+        <canvas id="coordsIndicator" width="120" height="120"></canvas>
+      </div>
+
+      <div class="control-box frame">
+        <div id="slewGrid">
+          <button class="up" data-direction="up">▲</button>
+          <button class="left" data-direction="left">◀</button>
+          <button class="right" data-direction="right">▶</button>
+          <button class="down" data-direction="down">▼</button>
+        </div>
+
+        <div id="slewButtons">
+          <button id="park">🚗 Park</button>
+          <button id="toggleTracking">🔒 Track</button>
+
+          <div id="slewSlider">
+            <input type="range" id="slewRate" min="0" title="Slew Rate">
+            <span class="slider-value" id="slewValue"></span>
+          </div>
+
+          <div id="slewOverlay" class="card-overlay">
+            <span id="slewOverlayMessage">🚗 Parked</span>
+            <button id="unpark">Unpark</button>
+            <button id="abortGoto">⛔ Abort</button>
+          </div>
+        </div>
+      </div>
+      
+      <div id="mountOverlay" class="card-overlay">
+        <span id="mountOverlayMessage">🔌 Mount Disconnected</span>
+      </div>
+    </div>
+
+    <div class="card" id="focuserCard">
+      <h2><span id="focuserTitle">Focuser</span> <button id="focuserReconnect" title="Reconnect">🔌</button></h2>
+
+      <div class="columns">
+        <div class="status">
+          <span class="label">Status:</span> <span id="focusStatus"></span>
+        </div>
+        <div class="status">
+          <span class="label">Positon:</span> <span id="focusPosition"></span>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="control-box">
+          <button data-focus="FOCUS_INWARD" data-amount="100" title="Large Inward">◀◀</button>
+          <button data-focus="FOCUS_INWARD" data-amount="10" title="Small Inward">◀</button>
+          <button data-focus="FOCUS_OUTWARD" data-amount="10" title="Small Outward">▶</button>
+          <button data-focus="FOCUS_OUTWARD" data-amount="100" title="Large Outward">▶▶</button>
+        </div>
+
+        <div id="focuserAbs"></div>
+
+        <div id="focuserControlsOverlay" class="card-overlay">
+          <span>🚀 Moving</span>
+          <button id="abortFocus">⛔ Abort</button>
+        </div>
+      </div>
+
+      <div id="focuserOverlay" class="card-overlay">
+        <span id="focuserOverlayMessage">🔌 Focuser Disconnected</span>
+      </div>
+    </div>
+
+    <div id="overlay">
+      <div>
+        <p id="overlayMessage">🔌 Disconnected from server</p>
+        <p>Reconnecting...</p>
+      </div>
+    </div>
+  </main>
+  <footer id="footer">
+    <p class="footer-top">
+      <img src="favicon-32x32.png" alt="AstroConsole Logo" class="footer-logo" />
+      AstroConsole v0.1
+    </p>
+    <p class="footer-bottom">
+      © 2025 <a href="https://kierenb.net" target="_blank">Kieren Beckett</a> | 
+      <a href="https://github.com/kierenbeckett/astroconsole" target="_blank">GitHub</a> | 
+      <a href="https://github.com/kierenbeckett/astroconsole/blob/main/LICENSE" target="_blank">GPLv3</a>
+    </p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
