@@ -1,3 +1,48 @@
+const AU_KM = 149597870.7;
+
+const PLANETS = {
+  mercury: {
+    a0: 0.38709927, e0: 0.20563593, I0: 7.00497902, L0: 252.25032350, W0: 77.45779628, O0: 48.33076593,
+    at: 0.00000037, et: 0.00001906, It: -0.00594749, Lt: 149472.67411175, Wt: 0.16047689, Ot: -0.12534081,
+    radiusAU: 2439.7 / AU_KM
+  },
+  venus: {
+    a0: 0.72333566, e0: 0.00677672, I0: 3.39467605, L0: 181.97909950, W0: 131.60246718, O0: 76.67984255,
+    at: 0.00000390, et: -0.00004107, It: -0.00078890, Lt: 58517.81538729, Wt: 0.00268329, Ot: -0.27769418,
+    radiusAU: 6051.8 / AU_KM
+  },
+  "EM Bary": {
+    a0: 1.00000261, e0: 0.01671123, I0: -0.00001531, L0: 100.46457166, W0: 102.93768193, O0: 0.0,
+    at: 0.00000562, et: -0.00004392, It: -0.01294668, Lt: 35999.37244981, Wt: 0.32327364, Ot: 0.0,
+    radiusAU: 6378.1 / AU_KM
+  },
+  mars: {
+    a0: 1.52371034, e0: 0.09339410, I0: 1.84969142, L0: -4.55343205, W0: -23.94362959, O0: 49.55953891,
+    at: 0.00001847, et: -0.00007882, It: -0.00813131, Lt: 19140.30268499, Wt: 0.44441088, Ot: -0.29257343,
+    radiusAU: 3389.5 / AU_KM
+  },
+  jupiter: {
+    a0: 5.20288700, e0: 0.04838624, I0: 1.30439695, L0: 34.39644051, W0: 14.72847983, O0: 100.47390909,
+    at: -0.00011607, et: -0.00013253, It: -0.00183714, Lt: 3034.74612775, Wt: 0.21252668, Ot: 0.20469106,
+    radiusAU: 69911 / AU_KM
+  },
+  saturn: {
+    a0: 9.53667594, e0: 0.05386179, I0: 2.48599187, L0: 49.95424423, W0: 92.59887831, O0: 113.66242448,
+    at: -0.00125060, et: -0.00050991, It: 0.00193609, Lt: 1222.49362201, Wt: -0.41897216, Ot: -0.28867794,
+    radiusAU: 58232 / AU_KM
+  },
+  uranus: {
+    a0: 19.18916464, e0: 0.04725744, I0: 0.77263783, L0: 313.23810451, W0: 170.95427630, O0: 74.01692503,
+    at: -0.00196176, et: -0.00004397, It: -0.00242939, Lt: 428.48202785, Wt: 0.40805281, Ot: 0.04240589,
+    radiusAU: 25362 / AU_KM
+  },
+  neptune: {
+    a0: 30.06992276, e0: 0.00859048, I0: 1.77004347, L0: -55.12002969, W0: 44.96476227, O0: 131.78422574,
+    at: 0.00026291, et: 0.00005105, It: 0.00035372, Lt: 218.45945325, Wt: -0.32241464, Ot: -0.00508664,
+    radiusAU: 24622 / AU_KM
+  }
+};
+
 // INDI
 const wsUrl = `ws://${window.location.hostname}:7626`;
 let ws;
@@ -13,8 +58,8 @@ let slewRates;
 let slewIndex;
 let lat;
 let long;
-let ra;
-let dec;
+let raHours;
+let decDeg;
 let parking;
 let parked;
 let motionNs;
@@ -39,108 +84,22 @@ let scopeLocked = true;
 // Helper functions
 //////////////////////////////////
 
-/**
- * Compute rectangle corners (with an outward arrow notch on the top edge)
- * around a center RA/Dec using tangent-plane + great-circle method.
- * Returns corners in clockwise order:
- *   bottom-left → bottom-right → top-right → notch-base-right → notch-peak → notch-base-left → top-left
- *
- * @param {number} ra0Deg      - Center RA in degrees (0–360)
- * @param {number} dec0Deg     - Center Dec in degrees (-90–90)
- * @param {number} widthArcmin - Rectangle width in arcminutes (east-west direction)
- * @param {number} heightArcmin- Rectangle height in arcminutes (north-south direction)
- * @param {number} paDeg       - Position angle in degrees (0 = north up, east left, positive = CCW)
- * @returns {Array<[number, number]>} Array of corners [RA_deg, Dec_deg], clockwise
- */
-function rectangleCornersWithNotch(ra0Deg, dec0Deg, widthArcmin, heightArcmin, paDeg) {
-  const ra0 = (ra0Deg * Math.PI) / 180.0;
-  const dec0 = (dec0Deg * Math.PI) / 180.0;
+function deg2rad(d) { return d * Math.PI / 180; }
 
-  // convert to radians
-  const w = (widthArcmin / 60.0) * (Math.PI / 180.0);  // width in radians
-  const h = (heightArcmin / 60.0) * (Math.PI / 180.0); // height in radians
-  const hw = w / 2.0; // half width
-  const hh = h / 2.0; // half height
+function rad2deg(r) { return r * 180 / Math.PI; }
 
-  const notchHW = 0.2 * hw;
-  const notchH = 0.2 * hh;
-
-  // Center unit vector
-  const cx = Math.cos(dec0) * Math.cos(ra0);
-  const cy = Math.cos(dec0) * Math.sin(ra0);
-  const cz = Math.sin(dec0);
-
-  // Local east (unit vector)
-  const ex = -Math.sin(ra0);
-  const ey = Math.cos(ra0);
-  const ez = 0.0;
-
-  // Local north (unit vector)
-  const nx = -Math.cos(ra0) * Math.sin(dec0);
-  const ny = -Math.sin(ra0) * Math.sin(dec0);
-  const nz = Math.cos(dec0);
-
-  // Rotation matrix in tangent plane
-  const pa = (paDeg * Math.PI) / 180.0;
-  const cosPA = Math.cos(pa);
-  const sinPA = Math.sin(pa);
-  function rotate(x, y) {
-    return [x * cosPA - y * sinPA, x * sinPA + y * cosPA];
-  }
-
-  const corners = [];
-
-  // define rectangle + notch offsets in **clockwise order**
-  const offsets = [
-    [-hw, -hh],               // bottom-left
-    [ hw, -hh],               // bottom-right
-    [ hw,  hh],               // top-right
-    [ notchHW, hh],           // notch base right
-    [ 0,      hh + notchH],   // notch peak (outward)
-    [-notchHW, hh],           // notch base left
-    [-hw,  hh],               // top-left
-  ];
-
-  for (const [x0, y0] of offsets) {
-    // apply rotation in tangent plane
-    const [x, y] = rotate(x0, y0);
-
-    // Tangent-plane offset vector
-    const dx = x * ex + y * nx;
-    const dy = x * ey + y * ny;
-    const dz = x * ez + y * nz;
-
-    const sigma = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-    let px, py, pz;
-    if (sigma === 0) {
-      // at the center
-      px = cx; py = cy; pz = cz;
-    } else {
-      const s = Math.sin(sigma) / sigma;
-      px = cx * Math.cos(sigma) + dx * s;
-      py = cy * Math.cos(sigma) + dy * s;
-      pz = cz * Math.cos(sigma) + dz * s;
-    }
-
-    // Convert back to RA, Dec
-    let ra = Math.atan2(py, px) * 180.0 / Math.PI;
-    if (ra < 0) ra += 360.0;
-    const dec = Math.asin(pz) * 180.0 / Math.PI;
-
-    corners.push([ra, dec]);
-  }
-
-  return corners;
+function julian2000Century(date) {
+  const JD = (date.getTime() / 86400000) + 2440587.5;
+  return (JD - 2451545.0) / 36525.0;
 }
 
-function formatDegrees(decimalDegrees) {
+function formatDegrees(decimalDegrees, showPlus=false) {
   const degrees = Math.floor(decimalDegrees);
   const minutesFloat = (decimalDegrees - degrees) * 60;
   const minutes = Math.floor(minutesFloat);
   const seconds = Math.floor((minutesFloat - minutes) * 60);
-
-  return `${degrees}° ${minutes}' ${seconds}"`;
+  const plus = showPlus && degrees >= 0 ? '+' : '';
+  return `${plus}${degrees}° ${minutes}' ${seconds}"`;
 }
 
 function formatHours(decimalHours) {
@@ -148,29 +107,225 @@ function formatHours(decimalHours) {
   const minutesFloat = (decimalHours - hours) * 60;
   const minutes = Math.floor(minutesFloat);
   const seconds = Math.floor((minutesFloat - minutes) * 60);
-
   return `${hours}h ${minutes}m ${seconds}s`;
 }
 
+/**
+ * Convert J2000 ecliptic coordinates to J2000 equatorial coordinates
+ */
+function eclipticToEquatorial(x, y, z) {
+  const eps = deg2rad(23.439291)
+  return {
+    x: x,
+    y: y * Math.cos(eps) - z * Math.sin(eps),
+    z: y * Math.sin(eps) + z * Math.cos(eps)
+  }
+}
+
+function cartesianToRadec(v) {
+  const r = Math.sqrt(v.x**2 + v.y**2 + v.z**2);
+  const ra = Math.atan2(v.y, v.x);
+  const dec = Math.asin(v.z / r);
+  let raDeg = (rad2deg(ra) + 360) % 360;
+  return { raHours: raDeg / 15, decDeg: rad2deg(dec) };
+}
+
+function radecToCartesian(raHours, decDeg) {
+  const a = deg2rad(raHours * 15);
+  const d = deg2rad(decDeg);
+  return { x: Math.cos(d)*Math.cos(a), y: Math.cos(d)*Math.sin(a), z: Math.sin(d) };
+}
+
+function rotVectorX(v) {
+  const c = Math.cos(v)
+  const s = Math.sin(v);
+  return [[1,0,0], [0,c,-s], [0,s,c]];
+}
+
+function rotVectorZ(v) {
+  const c = Math.cos(v)
+  const s = Math.sin(v);
+  return [[c,-s,0], [s,c,0], [0,0,1]];
+}
+
+function multiplyMatrix(A, B) {
+  const R = [];
+  for(let i = 0; i < 3; i++) {
+    R[i] = [];
+    for(let j = 0; j < 3; j++){
+      R[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
+    }
+  }
+  return R;
+}
+
+function transposeMatrix(M) {
+  return [
+    [M[0][0], M[1][0], M[2][0]],
+    [M[0][1], M[1][1], M[2][1]],
+    [M[0][2], M[1][2], M[2][2]]
+  ];
+}
+
+function applyMatrix(M, v) {
+  return {
+    x: M[0][0] * v.x + M[0][1] * v.y + M[0][2] * v.z,
+    y: M[1][0] * v.x + M[1][1] * v.y + M[1][2] * v.z,
+    z: M[2][0] * v.x + M[2][1] * v.y + M[2][2] * v.z
+  };
+}
+
+function solveKeplerEquation(M, e) {
+	let e1 = rad2deg(e);
+	let E0 = M + e1 * Math.sin(deg2rad(M));
+	let tolerance = 10e-6;
+	let dE;
+	let dM;
+	let E1 = E0;
+	let E2 = 0;
+	let difE1E2 = 1;
+	
+	for (let i = 0; (i < 1000) && (difE1E2 > tolerance); i++){
+		dM = M - (E1 - e1 * Math.sin(deg2rad(E1)));
+		dE = dM / (1 - e * Math.cos(deg2rad(E1)));
+		E2 = E1 + dE;
+		difE1E2 = Math.abs(E1 - E2);
+	}
+	return E2;
+}
+
+/**
+ * Calculate the cartesian heliocentric coordinates of a planet on the J2000 ecliptic plane, with the x-axis aligned toward the equinox
+ * 
+ * https://ssd.jpl.nasa.gov/planets/approx_pos.html
+ */
+function getPlanetPosition(name, date=new Date()) {
+  const el = PLANETS[name];
+  const T = julian2000Century(date);
+
+  const a = el.a0 + el.at * T;
+  const e = el.e0 + el.et * T;
+  const I = el.I0 + el.It * T;
+  const L = el.L0 + el.Lt * T;
+  const W = el.W0 + el.Wt * T;
+  const O = el.O0 + el.Ot * T;
+
+  const w = W - O;
+
+  let M = L - W;
+  if(M < -180 || M > 180) M = M % 360;
+
+  const E = solveKeplerEquation(M, e);
+
+  const x1 = a * (Math.cos(deg2rad(E)) - e);
+  const y1 = a * Math.sqrt(1 - (e * e)) * Math.sin(deg2rad(E));
+
+  const cosw = Math.cos(deg2rad(w)), sinw = Math.sin(deg2rad(w));
+  const cosO = Math.cos(deg2rad(O)), sinO = Math.sin(deg2rad(O));
+  const cosI = Math.cos(deg2rad(I)), sinI = Math.sin(deg2rad(I));
+
+  const Xecl = (cosw * cosO - sinw * sinO * cosI) * x1 + (-sinw * cosO - cosw * sinO * cosI) * y1;
+  const Yecl = (cosw * sinO + sinw * cosO * cosI) * x1 + (-sinw * sinO + cosw * cosO * cosI) * y1;
+  const Zecl = (sinw * sinI) * x1 + (cosw * sinI) * y1;
+
+  return {x: Xecl, y: Yecl, z: Zecl};
+}
+
+function recalulatePlanets() {
+  const earthVec = getPlanetPosition("EM Bary");
+
+  Object.keys(PLANETS).forEach(name => {
+    if (name == 'EM Bary') return;
+
+    const vec = getPlanetPosition(name);
+    // convert to be geocentric J2000 equatorial coordinates
+    const dx = vec.x - earthVec.x;
+    const dy = vec.y - earthVec.y;
+    const dz = vec.z - earthVec.z;
+    const eq = eclipticToEquatorial(dx, dy, dz);
+    const pos = cartesianToRadec(eq);
+
+    PLANETS[name].raHours = pos.raHours;
+    PLANETS[name].decDeg = pos.decDeg;
+    PLANETS[name].distance = Math.sqrt(dx**2 + dy**2 + dz**2);
+    PLANETS[name].size = rad2deg(3600 * 2 * PLANETS[name].radiusAU / PLANETS[name].distance);
+  });
+}
+
+function rectangleCornersWithNotch(raDeg, decDeg, widthArcmin, heightArcmin, rotation) {
+  const center = radecToCartesian(raDeg / 15, decDeg);
+
+  const ra0 = deg2rad(raDeg);
+  const dec0 = deg2rad(decDeg);
+  const east  = { x: -Math.sin(ra0), y:  Math.cos(ra0), z: 0 };
+  const north = { x: -Math.cos(ra0) * Math.sin(dec0), y: -Math.sin(ra0) * Math.sin(dec0), z:  Math.cos(dec0) };
+
+  const w  = deg2rad(widthArcmin / 60.0);
+  const h  = deg2rad(heightArcmin / 60.0);
+  const hw = w / 2.0;
+  const hh = h / 2.0;
+  const notchHW = 0.2 * hw;
+  const notchH  = 0.2 * hh;
+
+  const pa = deg2rad(rotation);
+  const cosPA = Math.cos(pa), sinPA = Math.sin(pa);
+  function rotate(x, y) {
+    return [x * cosPA - y * sinPA, x * sinPA + y * cosPA];
+  }
+
+  const offsets = [
+    [-hw, -hh],              // bottom-left
+    [ hw, -hh],              // bottom-right
+    [ hw,  hh],              // top-right
+    [ notchHW, hh],          // notch base right
+    [ 0,       hh + notchH], // notch peak
+    [-notchHW, hh],          // notch base left
+    [-hw,  hh],              // top-left
+  ];
+
+  const corners = [];
+  for (const [x0, y0] of offsets) {
+    const [x, y] = rotate(x0, y0);
+
+    const dx = x * east.x + y * north.x;
+    const dy = x * east.y + y * north.y;
+    const dz = x * east.z + y * north.z;
+
+    const sigma = Math.sqrt(dx**2 + dy**2 + dz**2);
+
+    let point;
+    if (sigma === 0) {
+      point = {x: center.x, y: center.y, z: center.z};
+    }
+    else {
+      const s = Math.sin(sigma) / sigma;
+      const c = Math.cos(sigma);
+      point = {
+        x: center.x * c + dx * s,
+        y: center.y * c + dy * s,
+        z: center.z * c + dz * s,
+      }
+    }
+
+    const radec = cartesianToRadec(point);
+    corners.push([radec.raHours * 15, radec.decDeg]);
+  }
+
+  return corners;
+}
+
+/**
+ * Convert EOD equatorial coordinates to Alt/Az
+ */
 function raDecToAltAz(raHours, decDeg, latDeg, lonDeg, date = new Date()) {
-    // this expects ra/dec as jnow, confirm that's what the mount is outputting
-
-    const deg2rad = d => d * Math.PI / 180;
-    const rad2deg = r => r * 180 / Math.PI;
-
-    // Convert RA hours → degrees
-    const raDeg = raHours * 15;
-
     // Convert longitude to -180..180 for sidereal time calc
     let lon = lonDeg > 180 ? lonDeg - 360 : lonDeg;
 
-    // Julian Date
-    const JD = (date.getTime() / 86400000) + 2440587.5;
-    const T = (JD - 2451545.0) / 36525.0;
+    const T = julian2000Century(date);
 
     // GMST in degrees
     let GMST = 280.46061837 +
-               360.98564736629 * (JD - 2451545) +
+               360.98564736629 * (T * 36525) +
                0.000387933 * T**2 -
                (T**3) / 38710000;
     GMST = ((GMST % 360) + 360) % 360;
@@ -180,7 +335,7 @@ function raDecToAltAz(raHours, decDeg, latDeg, lonDeg, date = new Date()) {
     if (LST < 0) LST += 360;
 
     // Hour Angle
-    let HA = (LST - raDeg) % 360;
+    let HA = (LST - raHours * 15) % 360;
     if (HA < 0) HA += 360;
 
     // Convert to radians
@@ -205,6 +360,41 @@ function raDecToAltAz(raHours, decDeg, latDeg, lonDeg, date = new Date()) {
     }
 
     return { az, alt };
+}
+
+/**
+ * IAU2006 (P03) precession matrix builder (flip X-rotation signs)
+ */
+function precessionMatrix2006(T) {
+  const psiA = 5038.481507*T - 1.0790069*T*T - 0.00114045*Math.pow(T,3) + 0.000132851*Math.pow(T,4) - 0.0000000951*Math.pow(T,5);
+  const omegaA = 84381.406 - 0.025754*T + 0.0512623*T*T - 0.00772503*Math.pow(T,3) - 0.000000467*Math.pow(T,4) + 0.0000003337*Math.pow(T,5);
+  const chiA = 10.556403*T - 2.3814292*T*T - 0.00121197*Math.pow(T,3) + 0.000170663*Math.pow(T,4) - 0.0000000560*Math.pow(T,5);
+
+  const psi = deg2rad(psiA/3600);
+  const omg = deg2rad(omegaA/3600);
+  const chi = deg2rad(chiA/3600);
+  const eps0 = deg2rad(-84381.406/3600);
+
+  let P = rotVectorX(eps0);
+  P = multiplyMatrix(rotVectorZ(-psi), P);
+  P = multiplyMatrix(rotVectorX(+omg), P);
+  P = multiplyMatrix(rotVectorZ(chi), P);
+  return P;
+}
+
+function precessEodToJ2000(raHours, decDeg, date=new Date()) {
+  const T = julian2000Century(date);
+  const P = precessionMatrix2006(T);
+  const v = radecToCartesian(raHours, decDeg);
+  return cartesianToRadec(applyMatrix(P, v));
+}
+
+function precessJ2000ToEod(raHours, decDeg, date=new Date()) {
+  const T = julian2000Century(date);
+  const P = precessionMatrix2006(T);
+  const Pt = transposeMatrix(P);
+  const v = radecToCartesian(raHours, decDeg);
+  return cartesianToRadec(applyMatrix(Pt, v));
 }
 
 /////////////////////////////////
@@ -260,7 +450,7 @@ function drawFinderscope() {
   if (!pierSideWest && scopeFlipPierEast) {
     scopeRotation = (scopeRotation + 180) % 360;
   }
-  const rad = scopeRotation * Math.PI / 180;
+  const rad = deg2rad(scopeRotation);
   const card = img.parentElement;
   const rotatedHeight = Math.abs(img.width * Math.sin(rad)) + Math.abs(img.height * Math.cos(rad));
   img.style.transform = `translate(0px, ${(rotatedHeight - img.height)/2}px) rotate(${scopeRotation}deg)`;
@@ -309,7 +499,7 @@ function drawFinderscope() {
 
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate((cameraRotation - 180) * Math.PI / 180); // radians
+    ctx.rotate(deg2rad(cameraRotation - 180));
     ctx.beginPath();
     ctx.moveTo(offsets[0][0], offsets[0][1]);
     for (let i = 1; i < offsets.length; i++) {
@@ -346,7 +536,9 @@ function drawAtlas() {
     return;
   }
 
-  if (!mountConnected || ra == null || dec == null) {
+  // TODO show planets
+
+  if (!mountConnected || raHours == null || decDeg == null) {
     scopeOverlay.hide();
     if (mountConnected == null) {
       document.getElementById('atlasButtonsOverlayMessage').textContent = '🔌 Mount Not Found';
@@ -378,10 +570,10 @@ function drawAtlas() {
     document.getElementById('atlasButtonsOverlay').style.display = 'none';
   }
 
-  // convert jnow to ICRS?
+  const j2000Pos = precessEodToJ2000(raHours, decDeg);
 
   if (scopeLocked) {
-    aladin.gotoRaDec(ra * 15, dec == 90 ? 89.9999 : dec);
+    aladin.gotoRaDec(j2000Pos.raHours * 15, j2000Pos.decDeg == 90 ? 89.9999 : j2000Pos.decDeg);
     aladin.setRotation(0);
   }
 
@@ -394,7 +586,7 @@ function drawAtlas() {
     if (!pierSideWest && scopeFlipPierEast) {
       scopeRotation = (scopeRotation + 180) % 360;
     }
-    corners = rectangleCornersWithNotch(ra * 15, dec == 90 ? 89.9999 : dec, scopeFovX * 60, scopeFovY * 60, scopeRotation);
+    corners = rectangleCornersWithNotch(j2000Pos.raHours * 15, j2000Pos.decDeg == 90 ? 89.9999 : j2000Pos.decDeg, scopeFovX * 60, scopeFovY * 60, scopeRotation);
     scopeOverlay.add(A.polygon(corners));
   }
   const cameraFovX = config.camera?.fovx;
@@ -405,25 +597,25 @@ function drawAtlas() {
     if (!pierSideWest && cameraFlipPierEast) {
       cameraRotation = (cameraRotation + 180) % 360;
     }
-    corners = rectangleCornersWithNotch(ra * 15, dec == 90 ? 89.9999 : dec, cameraFovX * 60, cameraFovY * 60, cameraRotation);
+    corners = rectangleCornersWithNotch(j2000Pos.raHours * 15, j2000Pos.decDeg == 90 ? 89.9999 : j2000Pos.decDeg, cameraFovX * 60, cameraFovY * 60, cameraRotation);
     scopeOverlay.add(A.polygon(corners));
   }
   scopeOverlay.show();
 }
 
 function drawMountPosition() {
-  if (ra == null || dec == null || lat == null || long == null) {
+  if (raHours == null || decDeg == null || lat == null || long == null) {
     return;
   }
 
-  document.getElementById('ra').textContent = formatHours(ra);
-  document.getElementById('dec').textContent = formatDegrees(dec);
+  document.getElementById('ra').textContent = formatHours(raHours);
+  document.getElementById('dec').textContent = formatDegrees(decDeg, true);
   document.getElementById('long').textContent = formatDegrees(long > 180 ? (360 - long) : long) + (long > 180 ? ' W' : ' E');
   document.getElementById('lat').textContent = formatDegrees(Math.abs(lat)) + (lat > 0 ? ' N' : ' S');
 
-  const result = raDecToAltAz(ra, dec, lat, long);
+  const result = raDecToAltAz(raHours, decDeg, lat, long);
   document.getElementById('az').textContent = formatDegrees(result.az);
-  document.getElementById('alt').textContent = formatDegrees(result.alt);
+  document.getElementById('alt').textContent = formatDegrees(result.alt, true);
 
   const canvas = document.getElementById('coordsIndicator');
   const ctx = canvas.getContext('2d');
@@ -481,7 +673,7 @@ function drawMountPosition() {
   ctx.fill();
 
   if (!parking && doingGoto) {
-    const gotoResult = raDecToAltAz(gotoPos[0] / 15, gotoPos[1], lat, long);
+    const gotoResult = raDecToAltAz(gotoPos.raHours, gotoPos.decDeg, lat, long);
     const r = radius * (1 - gotoResult.alt / 90);
     const theta = (gotoResult.az / 360) * 2 * Math.PI - Math.PI / 2;
     ctx.strokeStyle = '#ff4d4d';
@@ -626,37 +818,62 @@ function drawFocuserUi() {
 // Event handlers
 //////////////////////////////////
 
+document.getElementById('atlasSearch').addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const search = document.getElementById('searchText');
+  search.style.borderColor = '#555555';
+  const searchVal = search.value.trim().toLowerCase();
+  if (searchVal) {
+    const planet = PLANETS?.[searchVal] ?? null;
+    if (planet) {
+      aladin.gotoRaDec(planet.raHours * 15, planet.decDeg);
+      aladin.setRotation(0);
+      scopeLocked = false;
+      drawAtlas();
+    }
+    else {
+      aladin.gotoObject(searchVal, {success: function(raDec) {
+        scopeLocked = false;
+        drawAtlas();
+      }, error: function() {
+        search.style.borderColor = '#ff4d4d';
+      }});
+    }
+  }
+});
+
 document.getElementById('recenter').addEventListener('click', (event) => {
   scopeLocked = !scopeLocked;
   drawAtlas();
 });
 
 document.getElementById('sync').addEventListener('click', (event) => {
-  const pos = aladin.getRaDec();
-  // convert ICRS to jnow?
+  const j2000Pos = aladin.getRaDec();
+  const pos = precessJ2000ToEod(j2000Pos[0] / 15, j2000Pos[1]);
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'ON_COORD_SET', 'keys': [{'key': 'SYNC', 'value': true}] });
   sendIndiMsg({
     cmd: 'number',
     device: mount,
     name: 'EQUATORIAL_EOD_COORD',
     keys: [
-      { key: 'RA', value: pos[0] / 15 },
-      { key: 'DEC', value: pos[1] }
+      { key: 'RA', value: pos.raHours },
+      { key: 'DEC', value: pos.decDeg }
     ]
   });
 });
 
 document.getElementById('goto').addEventListener('click', (event) => {
-  gotoPos = aladin.getRaDec();
-  // convert ICRS to jnow?
+  const j2000Pos = aladin.getRaDec();
+  gotoPos = precessJ2000ToEod(j2000Pos[0] / 15, j2000Pos[1]);
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'ON_COORD_SET', 'keys': [{'key': 'TRACK', 'value': true}] });
   sendIndiMsg({
     cmd: 'number',
     device: mount,
     name: 'EQUATORIAL_EOD_COORD',
     keys: [
-      { key: 'RA', value: gotoPos[0] / 15 },
-      { key: 'DEC', value: gotoPos[1] }
+      { key: 'RA', value: gotoPos.raHours },
+      { key: 'DEC', value: gotoPos.decDeg }
     ]
   });
 });
@@ -816,6 +1033,8 @@ function initAladin() {
     aladin.addOverlay(scopeOverlay);
 
     aladin.on('positionChanged', function(posChanged) {
+      document.getElementById('aladinPos').textContent = `${formatHours(posChanged.ra / 15)} ${formatDegrees(posChanged.dec, true)}`;
+
       if (posChanged.dragging) {
         aladin.setRotation(0);
         scopeLocked = false;
@@ -851,6 +1070,7 @@ function initFocuser() {
 function handleIndiProp(data) {
     if (data.name == null) {
       config = data;
+      recalulatePlanets();
       initAladin();
       initFinderscope();
       mount = config.mount?.name;
@@ -928,8 +1148,8 @@ function handleIndiProp(data) {
 
     if (data.device == mount && data.name == 'EQUATORIAL_EOD_COORD') {
       doingGoto = data.state == 'Busy';
-      ra = data.keys.find(item => item.key == 'RA').value;
-      dec = data.keys.find(item => item.key == 'DEC').value;
+      raHours = data.keys.find(item => item.key == 'RA').value;
+      decDeg = data.keys.find(item => item.key == 'DEC').value;
       drawMountPosition();
       drawMountUi();
       drawAtlas();

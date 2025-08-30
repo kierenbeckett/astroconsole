@@ -29,7 +29,14 @@
     <div class="card" id="atlasCard">
       <h2>Sky Map</h2>
 
-      <div id="aladin"></div>
+      <form id="atlasSearch">
+        <input type="text" id="searchText" placeholder="Enter an object or coordinates">
+        <button id="search">🔎 Search</button>
+      </form>
+
+      <div id="aladin">
+        <div class="aladin-horizontal-list aladin-fov aladin-dark-theme" id="aladinPos"></div>
+      </div>
 
       <div id="atlasMountControls" class="control-box frame">
         <button id="recenter">🔒 Lock</button>
