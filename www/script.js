@@ -975,10 +975,17 @@ document.getElementById('focuserReconnect').addEventListener('click', (event) =>
 });
 
 document.querySelectorAll('[data-focus]').forEach((button) => {
-  // TODO backlash compensation
   button.addEventListener('click', () => {
+    const backlashComp = config.devices[focuser]?.backlashComp ?? 0;
     sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': button.dataset.focus, 'value': true}] });
-    sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': button.dataset.amount}] });
+    if (button.dataset.focus == 'FOCUS_OUTWARD' && backlashComp) {
+      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': parseInt(button.dataset.amount) + backlashComp}] });
+      sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': 'FOCUS_INWARD', 'value': true}] });
+      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': backlashComp}] });
+    }
+    else {
+      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': button.dataset.amount}] });
+    }
   });
 });
 

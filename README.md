@@ -84,7 +84,8 @@ Runtime config can be added to `~/.config/astroconsole.json`
                 "Camera with 2x Barlow": 28550,
                 "Camera": 30850,
                 "Eyepiece": 46850
-            }
+            },
+            backlashComp: 50
         }
     },
     "mount": {
@@ -115,6 +116,7 @@ Runtime config can be added to `~/.config/astroconsole.json`
 | devices.${mount_name}.reverseDecPierWest | boolean   | false        | Reverse up/down buttons when the pier side is west (pointing east) |
 | devices.${mount_name}.reverseDecPierEast | boolean   | false        | Reverse up/down buttons when the pier side is east (pointing west) |
 | devices.${focuser_name}.presets          | map       | {}           | A map of focuser presets to jump to, friendly name => focuser value |
+| devices.${focuser_name}.backlashComp     | map       | 0            | When focusing outward, overshoot by the given amount then correct with an inward focus to compensate for backlash |
 | mount.name                               | string    | *Autodetect* | The INDI device name for the mount, if not specified the first one seen will be used |
 | focuser.name                             | string    | *Autodetect* | The INDI device name for the focuser, if not specified the first one seen will be used |
 | finderscope.url                          | string    | *null*       | The URL of a video feed to a webcam being used as a finderscope, see below |
