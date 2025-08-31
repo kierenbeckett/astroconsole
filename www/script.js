@@ -74,6 +74,7 @@ let focuser;
 let focuserConnected;
 let doingFocus;
 let focusPosition;
+let completeBacklashComp;
 
 // Atlas
 let aladin;
@@ -184,7 +185,7 @@ function solveKeplerEquation(M, e) {
 	let E1 = E0;
 	let E2 = 0;
 	let difE1E2 = 1;
-	
+
 	for (let i = 0; (i < 1000) && (difE1E2 > tolerance); i++){
 		dM = M - (E1 - e1 * Math.sin(deg2rad(E1)));
 		dE = dM / (1 - e * Math.cos(deg2rad(E1)));
@@ -196,7 +197,7 @@ function solveKeplerEquation(M, e) {
 
 /**
  * Calculate the cartesian heliocentric coordinates of a planet on the J2000 ecliptic plane, with the x-axis aligned toward the equinox
- * 
+ *
  * https://ssd.jpl.nasa.gov/planets/approx_pos.html
  */
 function getPlanetPosition(name, date=new Date()) {
@@ -980,8 +981,7 @@ document.querySelectorAll('[data-focus]').forEach((button) => {
     sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': button.dataset.focus, 'value': true}] });
     if (button.dataset.focus == 'FOCUS_OUTWARD' && backlashComp) {
       sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': parseInt(button.dataset.amount) + backlashComp}] });
-      sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': 'FOCUS_INWARD', 'value': true}] });
-      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': backlashComp}] });
+      completeBacklashComp = backlashComp;
     }
     else {
       sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': button.dataset.amount}] });
@@ -1180,6 +1180,13 @@ function handleIndiProp(data) {
 
     if (data.device == focuser && data.name == 'ABS_FOCUS_POSITION') {
       doingFocus = data.state == 'Busy';
+      if (!doingFocus) {
+        if (completeBacklashComp) {
+          sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': 'FOCUS_INWARD', 'value': true}] });
+          sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': completeBacklashComp}] });
+        }
+        completeBacklashComp = 0;
+      }
       focusPosition = data.keys.find(item => item.key == 'FOCUS_ABSOLUTE_POSITION').value;
       drawFocuserUi();
     }
