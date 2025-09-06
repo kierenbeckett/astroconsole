@@ -278,12 +278,12 @@ input[type="text"]:focus {
   transform: translate(0, -50%);
 }
 
-#atlasSearch {
+#mapSearch {
   display: flex;
   margin-bottom: 1rem;
 }
 
-#atlasSearch input {
+#mapSearch input {
   flex: 1;
 }
 
@@ -298,7 +298,7 @@ input[type="text"]:focus {
   bottom: auto;
 }
 
-#atlasMountControls {
+#mapMountControls {
   display: none;
 }
 

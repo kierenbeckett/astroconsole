@@ -260,6 +260,18 @@ Where the IP in the remote field is the IP of your Pi.
 
 Camera support may be added directly to AstroConsole at a later date.
 
+### What frame of reference are the RA/Dec coordinates in?
+
+The coordinates returned by the mount are shown as-is on the telescope card, they are expected to be JNow[^1].
+
+The sky map also shows JNow:
+
+ * When searching for the Sun, Moon, or planets, their JNow positions are calculated.
+ * When searching for stars and deep-sky objects, their catalog J2000 positions are transformed into the equinox of date. These remain essentially heliocentric rather than topocentric, but for practical purposes the difference is negligible.
+ * When entering coordinates they are expected to be JNow.
+
+[^1]: **JNow** — Topocentric equatorial coordinates using the equinox of date (i.e. the RA/Dec you would expect after polar alignment, before any additional transformation).
+
 ## Author
 
 © 2025 [Kieren Beckett](https://kierenb.net)

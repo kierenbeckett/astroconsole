@@ -45,7 +45,7 @@ let doingFocus;
 let focusPosition;
 let completeBacklashComp;
 
-// Atlas
+// Sky Map
 let aladin;
 let scopeOverlay;
 let scopeLocked = true;
@@ -73,6 +73,25 @@ function formatHours(decimalHours) {
   const minutes = Math.floor(minutesFloat);
   const seconds = Math.floor((minutesFloat - minutes) * 60);
   return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+function parseRadec(input) {
+  const sexagesimal = input.match(/^\s*(0*\d|1\d|2[0-3])h\s*(0*[0-9]|[1-5][0-9])m\s*(0*[0-9]|[1-5][0-9])s\s*,?\s*\+?(-?(?:0*[0-9]|[1-8][0-9]))°\s*(0*[0-9]|[1-5][0-9])'\s*(0*[0-9]|[1-5][0-9])"\s*$/i);
+  if (sexagesimal) {
+    const decSign = sexagesimal[4] > 0 ? 1 : -1;
+    return {
+      raHours: parseInt(sexagesimal[1]) + parseInt(sexagesimal[2]) / 60 + parseInt(sexagesimal[3]) / 3600,
+      decDeg: parseInt(sexagesimal[4]) + decSign * parseInt(sexagesimal[5]) / 60 + decSign * parseInt(sexagesimal[6]) / 3600
+    };
+  }
+
+  const decimal = input.match(/^\s*((?:0*\d|1\d|2[0-3])(?:\.\d+)?)h?\s*,?\s*\+?(-?(?:0*[0-9]|[1-8][0-9])(?:\.\d+)?)°?\s*$/i);
+  if (decimal) {
+    return {
+      raHours: parseFloat(decimal[1]),
+      decDeg: parseFloat(decimal[2])
+    };
+  }
 }
 
 function rectangleCornersWithNotch(raDeg, decDeg, widthArcmin, heightArcmin, rotation) {
@@ -137,18 +156,65 @@ function rectangleCornersWithNotch(raDeg, decDeg, widthArcmin, heightArcmin, rot
   return corners;
 }
 
+/**
+ * Convert from EOD to J2000 coordinates.
+ * 
+ * Returns {ra, dec} where ra is in hours.
+ */
 function precessEodToJ2000(raHours, decDeg, date=new Date()) {
+  decDeg = decDeg == 90 ? 89.9999 : decDeg;
   let M = Astronomy.Rotation_EQD_EQJ(date);
   let v = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
   v = Astronomy.RotateVector(M, v);
   return Astronomy.EquatorFromVector(v);
 }
 
+/**
+ * Convert from EOD to J2000 coordinates.
+ * 
+ * Returns {ra, dec} where ra is in hours.
+ */
 function precessJ2000ToEod(raHours, decDeg, date=new Date()) {
+  decDeg = decDeg == 90 ? 89.9999 : decDeg;
   let M = Astronomy.Rotation_EQJ_EQD(date);
   let v = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
   v = Astronomy.RotateVector(M, v);
   return Astronomy.EquatorFromVector(v);
+}
+
+const J2000_POLE_IN_EOD = precessJ2000ToEod(0, 89.9999);
+
+function northVector(pos, pole) {
+  const dot = pos.x * pole.x + pos.y * pole.y + pos.z * pole.z;
+  const nx = pole.x - dot * pos.x;
+  const ny = pole.y - dot * pos.y;
+  const nz = pole.z - dot * pos.z;
+  const norm = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  return {x: nx / norm, y: ny / norm, z: nz / norm};
+}
+
+function signedAngleBetween(v1, v2, normal) {
+  const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+  const cross = {
+    x: v1.y * v2.z - v1.z * v2.y,
+    y: v1.z * v2.x - v1.x * v2.z,
+    z: v1.x * v2.y - v1.y * v2.x
+  };
+  const dotNorm = cross.x * normal.x + cross.y * normal.y + cross.z * normal.z;
+  const angle = Math.atan2(dotNorm, dot);
+  return (rad2deg(angle) + 360) % 360;
+}
+
+/**
+ * Gives the rotation needed to rotate a J2000 frame to an EOD frame.
+ * 
+ * Returns the rotation in degrees between 0 and 360 clockwise.
+ */
+function precessRotation(raHours, decDeg) {
+  const pos = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
+  const j2000North = northVector(pos, Astronomy.VectorFromSphere({lon: J2000_POLE_IN_EOD.ra * 15, lat: J2000_POLE_IN_EOD.dec, dist: 1}, new Date()));
+  const north = northVector(pos, Astronomy.VectorFromSphere({lon: 0, lat: 89.9999, dist: 1}, new Date()));
+  return signedAngleBetween(j2000North, north, pos);
 }
 
 /////////////////////////////////
@@ -285,7 +351,7 @@ function drawFinderscope() {
   }
 }
 
-function drawAtlas() {
+function drawSkyMap() {
   if (aladin == null) {
     return;
   }
@@ -295,65 +361,81 @@ function drawAtlas() {
   if (!mountConnected || raHours == null || decDeg == null) {
     scopeOverlay.hide();
     if (mountConnected == null) {
-      document.getElementById('atlasButtonsOverlayMessage').textContent = '🔌 Mount Not Found';
+      document.getElementById('mapButtonsOverlayMessage').textContent = '🔌 Mount Not Found';
     }
     else {
-      document.getElementById('atlasButtonsOverlayMessage').textContent = '🔌 Mount Disconnected';
+      document.getElementById('mapButtonsOverlayMessage').textContent = '🔌 Mount Disconnected';
     }
-    document.getElementById('atlasButtonsOverlay').style.display = 'flex';
+    document.getElementById('mapButtonsOverlay').style.display = 'flex';
     return;
   }
 
   if (parking) {
-    document.getElementById('atlasButtonsOverlayMessage').textContent = '🚗 Parking';
-    document.getElementById('atlasButtonsOverlay').style.display = 'flex';
+    document.getElementById('mapButtonsOverlayMessage').textContent = '🚗 Parking';
+    document.getElementById('mapButtonsOverlay').style.display = 'flex';
   }
   else if (parked) {
-    document.getElementById('atlasButtonsOverlayMessage').textContent = '🚗 Parked';
-    document.getElementById('atlasButtonsOverlay').style.display = 'flex';
+    document.getElementById('mapButtonsOverlayMessage').textContent = '🚗 Parked';
+    document.getElementById('mapButtonsOverlay').style.display = 'flex';
   }
   else if (doingGoto) {
-    document.getElementById('atlasButtonsOverlayMessage').textContent = '🎯 Going to target';
-    document.getElementById('atlasButtonsOverlay').style.display = 'flex';
+    document.getElementById('mapButtonsOverlayMessage').textContent = '🎯 Going to target';
+    document.getElementById('mapButtonsOverlay').style.display = 'flex';
   }
   else if (scopeLocked) {
-    document.getElementById('atlasButtonsOverlayMessage').textContent = '🔒 Locked onto scope';
-    document.getElementById('atlasButtonsOverlay').style.display = 'flex';
+    document.getElementById('mapButtonsOverlayMessage').textContent = '🔒 Locked onto scope';
+    document.getElementById('mapButtonsOverlay').style.display = 'flex';
   }
   else {
-    document.getElementById('atlasButtonsOverlay').style.display = 'none';
+    document.getElementById('mapButtonsOverlay').style.display = 'none';
   }
 
-  const j2000Pos = precessEodToJ2000(raHours, decDeg);
+  const j2000ReticlePos = aladin.getRaDec();
+  const reticlePos = precessJ2000ToEod(j2000ReticlePos[0] / 15, j2000ReticlePos[1]);
+  document.getElementById('aladinPos').textContent = `${formatHours(reticlePos.ra)} ${formatDegrees(reticlePos.dec, true)}`;
+
+  const j2000MountPos = precessEodToJ2000(raHours, decDeg);
+  const j2000MountRotation = precessRotation(raHours, decDeg);
 
   if (scopeLocked) {
-    aladin.gotoRaDec(j2000Pos.ra * 15, j2000Pos.dec == 90 ? 89.9999 : j2000Pos.dec);
-    aladin.setRotation(0);
+    aladin.gotoRaDec(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec);
+    aladin.setRotation(j2000MountRotation);
+  }
+  else {
+    const j2000ReticleRotation = precessRotation(reticlePos.ra, reticlePos.dec);
+    aladin.setRotation(j2000ReticleRotation);
   }
 
   scopeOverlay.removeAll();
+
   const scopeFovX = config.finderscope?.fovx;
   const scopeFovY = config.finderscope?.fovy;
   if (scopeFovX && scopeFovY) {
-    let scopeRotation = (config.finderscope?.rotation ?? 0);
+    let finderscopeRotation = (config.finderscope?.rotation ?? 0) + j2000MountRotation;
     const scopeFlipPierEast = config.finderscope?.flipPierEast ?? false;
     if (!pierSideWest && scopeFlipPierEast) {
-      scopeRotation = (scopeRotation + 180) % 360;
+      finderscopeRotation = (finderscopeRotation + 180) % 360;
     }
-    corners = rectangleCornersWithNotch(j2000Pos.ra * 15, j2000Pos.dec == 90 ? 89.9999 : j2000Pos.dec, scopeFovX * 60, scopeFovY * 60, scopeRotation);
+    corners = rectangleCornersWithNotch(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec, scopeFovX * 60, scopeFovY * 60, finderscopeRotation);
     scopeOverlay.add(A.polygon(corners));
   }
+
   const cameraFovX = config.camera?.fovx;
   const cameraFovY = config.camera?.fovy;
   if (cameraFovX && cameraFovY) {
-    let cameraRotation = config.camera?.rotation ?? 0;
+    let cameraRotation = (config.camera?.rotation ?? 0) + j2000MountRotation;
     const cameraFlipPierEast = config.camera?.flipPierEast ?? false;
     if (!pierSideWest && cameraFlipPierEast) {
       cameraRotation = (cameraRotation + 180) % 360;
     }
-    corners = rectangleCornersWithNotch(j2000Pos.ra * 15, j2000Pos.dec == 90 ? 89.9999 : j2000Pos.dec, cameraFovX * 60, cameraFovY * 60, cameraRotation);
+    corners = rectangleCornersWithNotch(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec, cameraFovX * 60, cameraFovY * 60, cameraRotation);
     scopeOverlay.add(A.polygon(corners));
   }
+
+  const eodPoleInJ2000 = precessEodToJ2000(0, 89.9999);
+  scopeOverlay.add(A.circle(eodPoleInJ2000.ra * 15, eodPoleInJ2000.dec, 0.04, {color: 'green'})); 
+  //scopeOverlay.add(A.circle(0, 89.9999, 0.04, {color: 'red'}));
+
   scopeOverlay.show();
 }
 
@@ -574,37 +656,51 @@ function drawFocuserUi() {
 // Event handlers
 //////////////////////////////////
 
-document.getElementById('atlasSearch').addEventListener('submit', (event) => {
+document.getElementById('mapSearch').addEventListener('submit', (event) => {
   event.preventDefault();
 
   const search = document.getElementById('searchText');
   search.style.borderColor = '#555555';
   const searchVal = search.value.trim().toLowerCase();
   if (searchVal) {
+    const pos = parseRadec(searchVal);
+    if (pos) {
+      const j2000Pos = precessEodToJ2000(pos.raHours, pos.decDeg);
+      const j2000Rotation = precessRotation(pos.raHours, pos.decDeg);
+
+      aladin.gotoRaDec(j2000Pos.ra * 15, j2000Pos.dec);
+      aladin.setRotation(j2000Rotation);
+      scopeLocked = false;
+      drawSkyMap();
+      return;
+    }
+
     const sso = SOLAR_SYSTEM_OBJ.find(obj => obj.toLowerCase() == searchVal);
     if (sso) {
       const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
-      const planet2000 = Astronomy.Equator(sso, new Date(), observer, false, true);
+      const pos = Astronomy.Equator(sso, new Date(), observer, true, true);
+      const j2000Pos = precessEodToJ2000(pos.ra, pos.dec);
+      const j2000Rotation = precessRotation(pos.ra, pos.dec);
 
-      aladin.gotoRaDec(planet2000.ra * 15, planet2000.dec);
-      aladin.setRotation(0);
+      aladin.gotoRaDec(j2000Pos.ra * 15, j2000Pos.dec);
+      aladin.setRotation(j2000Rotation);
       scopeLocked = false;
-      drawAtlas();
+      drawSkyMap();
+      return;
     }
-    else {
-      aladin.gotoObject(searchVal, {success: function(raDec) {
-        scopeLocked = false;
-        drawAtlas();
-      }, error: function() {
-        search.style.borderColor = '#ff4d4d';
-      }});
-    }
+
+    aladin.gotoObject(searchVal, {success: function(raDec) {
+      scopeLocked = false;
+      drawSkyMap();
+    }, error: function() {
+      search.style.borderColor = '#ff4d4d';
+    }});
   }
 });
 
 document.getElementById('recenter').addEventListener('click', (event) => {
-  scopeLocked = !scopeLocked;
-  drawAtlas();
+  scopeLocked = true;
+  drawSkyMap();
 });
 
 document.getElementById('sync').addEventListener('click', (event) => {
@@ -797,17 +893,14 @@ function initAladin() {
     scopeOverlay = A.graphicOverlay({color: '#f39c12', lineWidth: 1});
     aladin.addOverlay(scopeOverlay);
 
-    aladin.on('positionChanged', function(posChanged) {
-      document.getElementById('aladinPos').textContent = `${formatHours(posChanged.ra / 15)} ${formatDegrees(posChanged.dec, true)}`;
-
-      if (posChanged.dragging) {
-        aladin.setRotation(0);
+    aladin.on('positionChanged', function(j2000PosChanged) {
+      if (j2000PosChanged.dragging) {
         scopeLocked = false;
-        drawAtlas();
+        drawSkyMap();
       }
     });
 
-    drawAtlas();
+    drawSkyMap();
   });
 }
 
@@ -818,7 +911,7 @@ function initMount() {
 
   document.getElementById('mountTitle').textContent = mount;
   document.getElementById('mountCard').style.display = 'block';
-  document.getElementById('atlasMountControls').style.display = 'flex';
+  document.getElementById('mapMountControls').style.display = 'flex';
   setInterval(drawMountPosition, 1000);
 }
 
@@ -872,12 +965,12 @@ function handleIndiProp(data) {
           focuserConnected = null;
           indiBuffer.length = 0;
         }
-        drawAtlas();
+        drawSkyMap();
         drawOverlays();
       }
       else if (data.device == mount) {
         mountConnected = connected;
-        drawAtlas();
+        drawSkyMap();
         drawOverlays();
       }
       else if (data.device == focuser) {
@@ -890,7 +983,7 @@ function handleIndiProp(data) {
       parking = data.state == 'Busy';
       parked = data.keys.find(item => item.key == 'PARK').value;
       drawMountUi();
-      drawAtlas();
+      drawSkyMap();
     }
 
     if (data.device == mount && data.name == 'TELESCOPE_TRACK_STATE') {
@@ -908,16 +1001,14 @@ function handleIndiProp(data) {
       long = data.keys.find(item => item.key == 'LONG').value;
       lat = data.keys.find(item => item.key == 'LAT').value;
       elevation = data.keys.find(item => item.key == 'ELEV').value;
-      drawMountPosition();
     }
 
     if (data.device == mount && data.name == 'EQUATORIAL_EOD_COORD') {
       doingGoto = data.state == 'Busy';
       raHours = data.keys.find(item => item.key == 'RA').value;
       decDeg = data.keys.find(item => item.key == 'DEC').value;
-      drawMountPosition();
       drawMountUi();
-      drawAtlas();
+      drawSkyMap();
     }
 
     if (data.device == mount && data.name == 'TELESCOPE_MOTION_NS') {
@@ -933,7 +1024,7 @@ function handleIndiProp(data) {
     if (data.device == mount && data.name == 'TELESCOPE_PIER_SIDE') {
       pierSideWest = data.keys.find(item => item.key == 'PIER_WEST').value;
       drawFinderscope();
-      drawAtlas();
+      drawSkyMap();
     }
 
     if (data.device == focuser && data.name == 'ABS_FOCUS_POSITION') {
@@ -978,7 +1069,7 @@ function connect() {
     mountConnected = null;
     focuserConnected = null;
     drawOverlays();
-    drawAtlas();
+    drawSkyMap();
     setTimeout(connect, 3000);
   };
 
