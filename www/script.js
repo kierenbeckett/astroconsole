@@ -1,15 +1,15 @@
-const SOLAR_SYSTEM_OBJ = [
-  'Sun',
-  'Moon',
-  'Mercury',
-  'Venus',
-  'Mars',
-  'Jupiter',
-  'Saturn',
-  'Uranus',
-  'Neptune',
-  'Pluto'
-]
+const SOLAR_SYSTEM_OBJ = {
+  Sun:     { diameter: 1391400, color: "#FDB813" },
+  Moon:    { diameter: 3474,    color: "#C0C0C0" },
+  Mercury: { diameter: 4879,    color: "#B1B1B1" },
+  Venus:   { diameter: 12104,   color: "#EEDC82" },
+  Mars:    { diameter: 6779,    color: "#C1440E" },
+  Jupiter: { diameter: 142984,  color: "#D2B48C" },
+  Saturn:  { diameter: 120536,  color: "#F5DEB3" },
+  Uranus:  { diameter: 51118,   color: "#66FFFF" },
+  Neptune: { diameter: 49528,   color: "#4169E1" },
+  Pluto:   { diameter: 2376,    color: "#A9A9A9" }
+};
 
 // INDI
 const wsUrl = `ws://${window.location.hostname}:7626`;
@@ -48,6 +48,7 @@ let completeBacklashComp;
 // Sky Map
 let aladin;
 let scopeOverlay;
+let planetOverlay;
 let scopeLocked = true;
 
 /////////////////////////////////
@@ -356,8 +357,6 @@ function drawSkyMap() {
     return;
   }
 
-  // TODO show planets
-
   if (!mountConnected || raHours == null || decDeg == null) {
     scopeOverlay.hide();
     if (mountConnected == null) {
@@ -437,6 +436,21 @@ function drawSkyMap() {
   //scopeOverlay.add(A.circle(0, 89.9999, 0.04, {color: 'red'}));
 
   scopeOverlay.show();
+}
+
+function drawPlanets() {
+  if (planetOverlay == null) {
+    return;
+  }
+
+  planetOverlay.removeAll();
+
+  Object.entries(SOLAR_SYSTEM_OBJ).forEach(([sso, props]) => {
+    const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
+    const j2000Pos = Astronomy.Equator(sso, new Date(), observer, false, true);
+    const diameterDeg = rad2deg(props.diameter / (j2000Pos.dist * Astronomy.KM_PER_AU));
+    planetOverlay.add(A.circle(j2000Pos.ra * 15, j2000Pos.dec, diameterDeg / 2, {color: props.color, fillColor: props.color}));
+  });
 }
 
 function drawMountPosition() {
@@ -675,7 +689,7 @@ document.getElementById('mapSearch').addEventListener('submit', (event) => {
       return;
     }
 
-    const sso = SOLAR_SYSTEM_OBJ.find(obj => obj.toLowerCase() == searchVal);
+    const sso = Object.keys(SOLAR_SYSTEM_OBJ).find(obj => obj.toLowerCase() == searchVal);
     if (sso) {
       const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
       const pos = Astronomy.Equator(sso, new Date(), observer, true, true);
@@ -893,6 +907,11 @@ function initAladin() {
     scopeOverlay = A.graphicOverlay({color: '#f39c12', lineWidth: 1});
     aladin.addOverlay(scopeOverlay);
 
+    planetOverlay = A.graphicOverlay({lineWidth: 1});
+    aladin.addOverlay(planetOverlay);
+    setInterval(drawPlanets, 60000);
+    drawPlanets();
+
     aladin.on('positionChanged', function(j2000PosChanged) {
       if (j2000PosChanged.dragging) {
         scopeLocked = false;
@@ -1001,6 +1020,7 @@ function handleIndiProp(data) {
       long = data.keys.find(item => item.key == 'LONG').value;
       lat = data.keys.find(item => item.key == 'LAT').value;
       elevation = data.keys.find(item => item.key == 'ELEV').value;
+      drawPlanets();
     }
 
     if (data.device == mount && data.name == 'EQUATORIAL_EOD_COORD') {
