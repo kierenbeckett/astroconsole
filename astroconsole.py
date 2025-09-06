@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import argparse
 import asyncio
 import http.server
@@ -112,6 +110,8 @@ async def handle_client(websocket, config):
         if pathlib.Path(config).exists():
             with open(config) as f:
                 await websocket.send(f.read())
+        else:
+            await websocket.send(json.dumps({'devices': {}}))
 
         for k, v in indi_state['devices'].items():
             for prop in v.values():
@@ -157,50 +157,35 @@ def start_static(host, port):
 
 
 async def main(args):
+    if pathlib.Path(args.config).exists():
+        with open(args.config) as f:
+            cfg = json.load(f)
+    else:
+        cfg = {}
+
+    host = cfg.get("webui", {}).get("host", "0.0.0.0")
+    port = cfg.get("webui", {}).get("port", 8080)
+    ws_host = cfg.get("proxy", {}).get("host", "0.0.0.0")
+    ws_port = cfg.get("proxy", {}).get("port", 7626)
+    indi_host = cfg.get("indi", {}).get("host", "127.0.0.1")
+    indi_port = cfg.get("indi", {}).get("port", 7624)
+
     await asyncio.gather(
-        asyncio.to_thread(start_static, args.host, args.port),
-        start_websocket(args.host, args.ws_port, args.config),
-        indi_connect(args.indi_host, args.indi_port)
+        asyncio.to_thread(start_static, host, port),
+        start_websocket(ws_host, ws_port, args.config),
+        indi_connect(indi_host, indi_port)
     )
 
 
 if __name__ == '__main__':
     sys.stdout.reconfigure(line_buffering=True)
 
-    parser = argparse.ArgumentParser(description='INDI Web')
+    parser = argparse.ArgumentParser(description='AstroConsole')
 
     parser.add_argument(
         '--config',
-        default=pathlib.Path.home() / '.config' / 'astroconsole.json',
-        help='Location of config file (default: ~/.config/astroconsole.json)'
-    )
-    parser.add_argument(
-        '--host',
-        default='0.0.0.0',
-        help='Host to bind to (default: 127.0.0.1)'
-    )
-    parser.add_argument(
-        '--port',
-        type=int,
-        default=8080,
-        help='Port to listen on (default: 8080)'
-    )
-    parser.add_argument(
-        '--ws-port',
-        type=int,
-        default=7626,
-        help='Port to listen on for websocket (default: 7626)'
-    )
-    parser.add_argument(
-        '--indi-host',
-        default='127.0.0.1',
-        help='INDI host (default: 127.0.0.1)'
-    )
-    parser.add_argument(
-        '--indi-port',
-        type=int,
-        default=7624,
-        help='INDI port (default: 7624)'
+        default='/etc/astroconsole/astroconsole.json',
+        help='Location of config file (default: /etc/astroconsole/astroconsole.json)'
     )
 
     asyncio.run(main(parser.parse_args()))

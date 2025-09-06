@@ -13,66 +13,25 @@ AstroConsole uses INDI for interfacing with devices. Currently mount and focuser
 ## Quick Start
 
 * Ensure you have INDI server running and connected to a mount and/or focuser.
-* Ensure you have Python 3 installed.
-* Clone this repo.
-* From within the clone, create a virtual environment: `python3 -m venv venv`.
-* Install requirements `./venv/bin/pip install -r requirements.txt`.
-* Run the [astroconsole](astroconsole) script within the virtual env: `./venv/bin/python3 ./astroconsole`.
+* Download the [latest release](https://github.com/kierenbeckett/astroconsole/releases/latest/download/astroconsole.deb)
+* Install it with `apt install ./astroconsole.deb`.
 * Visit the web UI at `http://yourip:8080`.
-
-## Usage
-
-```
-usage: astroconsole [-h] [--config CONFIG] [--host HOST] [--port PORT] [--ws-port WS_PORT] [--indi-host INDI_HOST] [--indi-port INDI_PORT]
-
-INDI Web
-
-options:
-  -h, --help            show this help message and exit
-  --config CONFIG       Location of config file (default: ~/.config/astroconsole.json)
-  --host HOST           Host to bind to (default: 127.0.0.1)
-  --port PORT           Port to listen on (default: 8080)
-  --ws-port WS_PORT     Port to listen on for websocket (default: 7626)
-  --indi-host INDI_HOST
-                        INDI host (default: 127.0.0.1)
-  --indi-port INDI_PORT
-                        INDI port (default: 7624)
-```
-
-## Run in systemd
-
-Create a systemd service at `/etc/systemd/system/astroconsole.service`:
-
-```
-[Unit]
-Description=AstroConsole
-After=multi-user.target
-
-[Service]
-Type=idle
-User=youruser
-WorkingDirectory=/path/to/astroconsole
-ExecStart=./venv/bin/python3 ./astroconsole
-Restart=always
-RestartSec=60
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service
-
-```
-systemctl enable astroconsole.service
-systemctl start astroconsole.service
-```
 
 ## Config
 
-Runtime config can be added to `~/.config/astroconsole.json`
+Config can be added to `/etc/astroconsole/astroconsole.json`
 
 ```
 {
+    "proxy": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "websocketPort": 7626
+    },
+    "indi": {
+        "host": "127.0.0.1",
+        "port": 7624
+    },
     "devices": {
         "EQMod Mount": {
             "reverseRa": true,
@@ -112,6 +71,12 @@ Runtime config can be added to `~/.config/astroconsole.json`
 
 | Path                                     | Type      | Default      | Description |
 |------------------------------------------|-----------|--------------|-------------|
+| webui.host                               | string    | 0.0.0.0      | Host to bind to for web UI |
+| webui.port                               | number    | 8080         | Port to listen on for the web UI |
+| proxy.host                               | string    | 0.0.0.0      | Host to bind to for web->INDI proxy |
+| proxy.port                               | number    | 7626         | Port to listen on for web->INDI proxy |
+| indi.host                                | string    | 127.0.0.1    | The INDI server host to connect to |
+| indi.port                                | number    | 7624         | The INDI server port to connect to |
 | devices.${mount_name}.reverseRa          | boolean   | false        | Reverse left/right buttons |
 | devices.${mount_name}.reverseDecPierWest | boolean   | false        | Reverse up/down buttons when the pier side is west (pointing east) |
 | devices.${mount_name}.reverseDecPierEast | boolean   | false        | Reverse up/down buttons when the pier side is east (pointing west) |
@@ -131,7 +96,7 @@ Runtime config can be added to `~/.config/astroconsole.json`
 
 Note that some properties need their INDI device name including e.g. `devices.${mount_name}.reverseRa` might be `devices."EQMod Mount".reverseRa`. This allows multiple mounts/focusers to be used without needing to change the config file each time.
 
-Changes to the config take effect when reloading the web UI. You do not need to restart AstroConsole.
+Changes to most config takes effect when reloading the web UI. You only need to restart AstroConsole when changing the `webui`, `proxy` and `indi` sections.
 
 ### Finderscope Webcam
 
@@ -225,8 +190,8 @@ With additional tools, yes.
 
 Note that there are at least a couple of ports that need to be exposed:
 
-* The main web UI port, default 8080.
-* The backend websocket port, default 7626.
+* The web UI port, default 8080.
+* The web->INDI proxy port, default 7626.
 * If you have a local finderscope URL, the IP/port for that.
 * You do not need to expose the INDI port.
 
