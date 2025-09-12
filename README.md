@@ -65,6 +65,18 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
         "fovy": 0.5,
         "rotation": 0,
         "flipPierEast": true
+    },
+    "gamepad": {
+        "directionX": 2,
+        "directionY": 3,
+        "directionUp": 12,
+        "directionDown": 13,
+        "directionLeft": 14,
+        "directionRight": 15,
+        "focusInSmall": 4,
+        "focusOutSmall": 5,
+        "focusInLarge": 6,
+        "focusOutLarge": 7
     }
 }
 ```
@@ -93,6 +105,16 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 | camera.fovy                              | number    | *null*       | The vertical FOV of your camera in decimal degrees, used to draw FOV squares |
 | camera.rotation                          | number    | 0            | The rotation of your camera on your rig, so the UI can match, see below |
 | camera.flipPierEast                      | boolean   | false        | Whether the rotation of your camera should be flipped when the pier side is east (pointing west) |
+| gamepad.directionX                       | number    | 2            | The ID of the X axis of an analogue stick to control direction, defaults to what is normally the right stick |
+| gamepad.directionY                       | number    | 3            | The ID of the Y axis of an analogue stick to control direction, defaults to what is normally the right stick |
+| gamepad.directionUp                      | number    | 12           | The ID of the button to move up, defaults to what is normally the dpad |
+| gamepad.directionDown                    | number    | 13           | The ID of the button to move down, defaults to what is normally the dpad |
+| gamepad.directionLeft                    | number    | 14           | The ID of the button to move left, defaults to what is normally the dpad |
+| gamepad.directionRight                   | number    | 15           | The ID of the button to move right, defaults to what is normally the dpad |
+| gamepad.focusInSmall                     | number    | 4            | The ID of the button to focus inward a small amount, defaults to what is normally the left shoulder button |
+| gamepad.focusOutSmall                    | number    | 5            | The ID of the button to focus outward a small amount, defaults to what is normally the right shoulder button |
+| gamepad.focusInLarge                     | number    | 6            | The ID of the button to focus inward a large amount, defaults to what is normally the left trigger |
+| gamepad.focusOutLarge                    | number    | 7            | The ID of the button to focus outward a large amount, defaults to what is normally the right trigger |
 
 Note that some properties need their INDI device name including e.g. `devices.${mount_name}.reverseRa` might be `devices."EQMod Mount".reverseRa`. This allows multiple mounts/focusers to be used without needing to change the config file each time.
 
@@ -129,6 +151,16 @@ All the devices in AstroConsole should be aligned such that up is towards the no
 * Move your mount to point west, low on the horizon.
 * Normally at this point your camera will have flipped by 180, if so set `camera.flipPierEast=true`.
 * Repeat for your camera if required.
+
+### Gamepad Support
+
+AstroConsole supports controlling both the mount and focuser using a gamepad. The default mapping is shown below:
+
+![Gamepad Mapping](docs/gamepad.png)
+
+Buttons can be re-mapped via the configuration above. To verify that your gamepad is compatible and to confirm the button IDs, you can use [this site](https://hardwaretester.com/gamepad).
+
+The four directional buttons on the gamepad function the same way as the on-screen UI buttons: press to move and release to stop, using the rate set on the slider. The analog stick additionally supports variable rates: pushing the stick to the edge will use the full rate set on the slider, while partially deflecting the stick will use half that rate.
 
 ## FAQs
 

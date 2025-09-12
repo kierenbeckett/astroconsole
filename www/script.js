@@ -51,6 +51,12 @@ let scopeOverlay;
 let planetOverlay;
 let scopeLocked = true;
 
+// Gamepad
+let gamepadActiveButtons = { 4: false, 5: false, 6: false, 7: false };
+let gamepadActiveDirs = { left: false, right: false, up: false, down: false };
+let gamepadFastRateIndex = null;
+let gamepadPrevRateIndex = null;
+
 /////////////////////////////////
 // Helper functions
 //////////////////////////////////
@@ -569,10 +575,7 @@ function drawMountUi() {
     abortGotoBtn.style.display = 'none';
   }
   else if (motionNs || motionWe) {
-    const movingAxes = [];
-    if (motionNs) movingAxes.push('NS');
-    if (motionWe) movingAxes.push('WE');
-    statusEl.textContent = `🚀 Moving ${movingAxes.join(' & ')}`;
+    statusEl.textContent = `🚀 Moving`;
     statusEl.style.color = '#f39c12';
   }
   else if (doingGoto) {
@@ -754,60 +757,17 @@ document.getElementById('mountReconnect').addEventListener('click', (event) => {
 document.querySelectorAll('[data-direction]').forEach((button) => {
   let isPressed = false;
 
-  function send(state) {
-    const reverseRa = config.devices[mount]?.reverseRa ?? false;
-    const reverseDec = (pierSideWest ? config.devices[mount]?.reverseDecPierWest : config.devices[mount]?.reverseDecPierEast) ?? false;
-    let axis;
-    let key;
-    let keyOpp;
-
-    if (button.dataset.direction == 'up') {
-      axis = 'TELESCOPE_MOTION_NS';
-      key = reverseDec ? 'MOTION_SOUTH' : 'MOTION_NORTH';
-      keyOpp = reverseDec ? 'MOTION_NORTH' : 'MOTION_SOUTH';
-    }
-    else if (button.dataset.direction == 'down') {
-      axis = 'TELESCOPE_MOTION_NS';
-      key = reverseDec ? 'MOTION_NORTH' : 'MOTION_SOUTH';
-      keyOpp = reverseDec ? 'MOTION_SOUTH' : 'MOTION_NORTH';
-    }
-    else if (button.dataset.direction == 'left') {
-      axis = 'TELESCOPE_MOTION_WE';
-      key = reverseRa ? 'MOTION_EAST' : 'MOTION_WEST';
-      keyOpp = reverseRa ? 'MOTION_WEST' : 'MOTION_EAST';
-    }
-    else if (button.dataset.direction == 'right') {
-      axis = 'TELESCOPE_MOTION_WE';
-      key = reverseRa ? 'MOTION_WEST' : 'MOTION_EAST';
-      keyOpp = reverseRa ? 'MOTION_EAST' : 'MOTION_WEST';
-    }
-    else {
-      console.log(`Unknown direction ${button.dataset.direction}`);
-      return;
-    }
-
-    sendIndiMsg({
-      cmd: 'switch',
-      device: mount,
-      name: axis,
-      keys: [
-        { key: key, value: state },
-        { key: keyOpp, value: false }
-      ]
-    });
-  }
-
   function start(event) {
     if (!isPressed) {
       isPressed = true;
-      send(true);
+      sendMotionCommand(button.dataset.direction, true);
     }
   }
 
   function stop(event) {
     if (isPressed) {
       isPressed = false;
-      send(false);
+      sendMotionCommand(button.dataset.direction, false);
     }
   }
 
@@ -843,17 +803,9 @@ document.getElementById('focuserReconnect').addEventListener('click', (event) =>
   sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'CONNECTION', 'keys': [{'key': 'DISCONNECT', 'value': true}] });
 });
 
-document.querySelectorAll('[data-focus]').forEach((button) => {
+document.querySelectorAll('[data-focus]').forEach(button => {
   button.addEventListener('click', () => {
-    const backlashComp = config.devices[focuser]?.backlashComp ?? 0;
-    sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_MOTION', 'keys': [{'key': button.dataset.focus, 'value': true}] });
-    if (button.dataset.focus == 'FOCUS_OUTWARD' && backlashComp) {
-      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': parseInt(button.dataset.amount) + backlashComp}] });
-      completeBacklashComp = backlashComp;
-    }
-    else {
-      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'REL_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_RELATIVE_POSITION', 'value': button.dataset.amount}] });
-    }
+    sendFocuserCommand(button.dataset.focus, parseInt(button.dataset.amount));
   });
 });
 
@@ -862,8 +814,191 @@ document.getElementById('abortFocus').addEventListener('click', (event) => {
 });
 
 /////////////////////////////////
+// Gamepad
+//////////////////////////////////
+
+setInterval(() => {
+  const gamepads = navigator.getGamepads();
+  if (!gamepads) return;
+
+  const gp = gamepads[0];
+  if (!gp) return;
+
+  const x = gp.axes[config.gamepad?.directionX ?? 2];
+  const y = gp.axes[config.gamepad?.directionY ?? 3];
+  const magnitude = Math.sqrt(x*x + y*y);
+
+  let stickDirs = { up: false, down: false, left: false, right: false };
+
+  if (magnitude >= 0.2) {
+    if (gamepadFastRateIndex == null) {
+      gamepadFastRateIndex = parseInt(document.getElementById("slewRate").value, 10);
+    }
+    const slowIndex = Math.floor(gamepadFastRateIndex / 2);
+    const rateIndex = magnitude > 0.6 ? gamepadFastRateIndex : slowIndex;
+
+    if (rateIndex != gamepadPrevRateIndex) {
+      // Stop all active directions before changing rate
+      Object.keys(gamepadActiveDirs).forEach(dir => {
+        if (gamepadActiveDirs[dir]) {
+          sendMotionCommand(dir, false);
+          gamepadActiveDirs[dir] = false;
+        }
+      });
+
+      sendIndiMsg({
+        cmd: "switch",
+        device: mount,
+        name: "TELESCOPE_SLEW_RATE",
+        keys: [{ key: slewRates[rateIndex].key, value: true }]
+      });
+      gamepadPrevRateIndex = rateIndex;
+    }
+
+    const angle = Math.atan2(y, x);
+    const sector = Math.round(angle / (Math.PI / 4)) & 7;
+    const dirMap = [
+      ["right"],         // 0 = 0° (east)
+      ["right", "down"], // 1 = 45° (southeast)
+      ["down"],          // 2 = 90° (south)
+      ["left", "down"],  // 3 = 135° (southwest)
+      ["left"],          // 4 = 180° (west)
+      ["left", "up"],    // 5 = 225° (northwest)
+      ["up"],            // 6 = 270° (north)
+      ["right", "up"]    // 7 = 315° (northeast)
+    ];
+    dirMap[sector].forEach(dir => stickDirs[dir] = true);
+  }
+  else {
+    if (gamepadFastRateIndex != null) {
+      sendIndiMsg({
+        cmd: "switch",
+        device: mount,
+        name: "TELESCOPE_SLEW_RATE",
+        keys: [{ key: slewRates[gamepadFastRateIndex].key, value: true }]
+      });
+    }
+    gamepadPrevRateIndex = null;
+    gamepadFastRateIndex = null;
+  }
+
+  const dpadMapping = [
+    { button: config.gamepad?.directionUp ?? 12, direction: "up" },
+    { button: config.gamepad?.directionDown ?? 13, direction: "down" },
+    { button: config.gamepad?.directionLeft ?? 14, direction: "left" },
+    { button: config.gamepad?.directionRight ?? 15, direction: "right" },
+  ];
+
+  let dpadDirs = { up: false, down: false, left: false, right: false };
+  dpadMapping.forEach(({ button, direction }) => {
+    dpadDirs[direction] = gp.buttons[button].pressed;
+  });
+
+  Object.keys(gamepadActiveDirs).forEach(dir => {
+    const shouldBeActive = stickDirs[dir] || dpadDirs[dir];
+    if (shouldBeActive && !gamepadActiveDirs[dir]) {
+      sendMotionCommand(dir, true);
+      gamepadActiveDirs[dir] = true;
+    }
+    else if (!shouldBeActive && gamepadActiveDirs[dir]) {
+      sendMotionCommand(dir, false);
+      gamepadActiveDirs[dir] = false;
+    }
+  });
+
+  const focuserMapping = [
+    { button: config.gamepad?.focusInSmall ?? 4, direction: 'FOCUS_INWARD',  amount: 10 },
+    { button: config.gamepad?.focusOutSmall ?? 5, direction: 'FOCUS_OUTWARD', amount: 10 },
+    { button: config.gamepad?.focusInLarge ?? 6, direction: 'FOCUS_INWARD',  amount: 100 },
+    { button: config.gamepad?.focusOutLarge ?? 7, direction: 'FOCUS_OUTWARD', amount: 100 }
+  ];
+
+  focuserMapping.forEach(({ button, direction, amount }) => {
+    const pressed = gp.buttons[button]?.pressed || false;
+
+    if (pressed && !gamepadActiveButtons[button]) {
+      sendFocuserCommand(direction, amount);
+    }
+
+    gamepadActiveButtons[button] = pressed;
+  });
+
+}, 100);
+
+/////////////////////////////////
 // INDI
 //////////////////////////////////
+
+function sendMotionCommand(direction, state) {
+  const reverseRa = config.devices[mount]?.reverseRa ?? false;
+  const reverseDec = (pierSideWest ? config.devices[mount]?.reverseDecPierWest : config.devices[mount]?.reverseDecPierEast) ?? false;
+  let axis;
+  let key;
+  let keyOpp;
+
+  if (direction == 'up' || direction == 12) {
+    axis = 'TELESCOPE_MOTION_NS';
+    key = reverseDec ? 'MOTION_SOUTH' : 'MOTION_NORTH';
+    keyOpp = reverseDec ? 'MOTION_NORTH' : 'MOTION_SOUTH';
+  }
+  else if (direction == 'down' || direction == 13) {
+    axis = 'TELESCOPE_MOTION_NS';
+    key = reverseDec ? 'MOTION_NORTH' : 'MOTION_SOUTH';
+    keyOpp = reverseDec ? 'MOTION_SOUTH' : 'MOTION_NORTH';
+  }
+  else if (direction == 'left' || direction == 14) {
+    axis = 'TELESCOPE_MOTION_WE';
+    key = reverseRa ? 'MOTION_EAST' : 'MOTION_WEST';
+    keyOpp = reverseRa ? 'MOTION_WEST' : 'MOTION_EAST';
+  }
+  else if (direction == 'right' || direction == 15) {
+    axis = 'TELESCOPE_MOTION_WE';
+    key = reverseRa ? 'MOTION_WEST' : 'MOTION_EAST';
+    keyOpp = reverseRa ? 'MOTION_EAST' : 'MOTION_WEST';
+  }
+  else {
+    console.log(`Unknown direction ${direction}`);
+    return;
+  }
+
+  sendIndiMsg({
+    cmd: 'switch',
+    device: mount,
+    name: axis,
+    keys: [
+      { key: key, value: state },
+      { key: keyOpp, value: false }
+    ]
+  });
+}
+
+function sendFocuserCommand(direction, amount) {
+  const backlashComp = config.devices[focuser]?.backlashComp ?? 0;
+
+  sendIndiMsg({
+    cmd: 'switch',
+    device: focuser,
+    name: 'FOCUS_MOTION',
+    keys: [{ key: direction, value: true }]
+  });
+
+  if (direction === 'FOCUS_OUTWARD' && backlashComp) {
+    sendIndiMsg({
+      cmd: 'number',
+      device: focuser,
+      name: 'REL_FOCUS_POSITION',
+      keys: [{ key: 'FOCUS_RELATIVE_POSITION', value: amount + backlashComp }]
+    });
+    completeBacklashComp = backlashComp;
+  } else {
+    sendIndiMsg({
+      cmd: 'number',
+      device: focuser,
+      name: 'REL_FOCUS_POSITION',
+      keys: [{ key: 'FOCUS_RELATIVE_POSITION', value: amount }]
+    });
+  }
+}
 
 function sendIndiMsg(msg) {
   if (ws.readyState !== WebSocket.OPEN) {
