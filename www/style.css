@@ -223,6 +223,7 @@ input[type="text"]:focus {
 
 #finderscopeCard {
   display: none;
+  flex-direction: column;
 }
 
 #finderscopeBorder {
@@ -231,12 +232,15 @@ input[type="text"]:focus {
   overflow: hidden;
   background: black;
   position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  flex: 1;
 }
 
 #finderscope {
-  max-width: 100%;
-  display: block;
-  height: auto;
+  position: absolute;
+  top: 50%;
+  left: 50%;
 }
 
 #finderscopeCanvas {
@@ -247,8 +251,6 @@ input[type="text"]:focus {
 
 #finderscopeBorder button {
   position: absolute;
-  transform: translate(-50%, -50%);
-
   background: none;
   color: #b232b2;
   border: none;
@@ -289,7 +291,7 @@ input[type="text"]:focus {
 
 #aladin {
   max-width: 100%;
-  height: 300px;
+  aspect-ratio: 4 / 3;
   margin-bottom: 1rem;
 }
 

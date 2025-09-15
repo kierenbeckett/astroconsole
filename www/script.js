@@ -268,6 +268,10 @@ function drawOverlays() {
 function drawFinderscope() {
   const img = document.getElementById('finderscope');
 
+  document.querySelectorAll('[data-direction]').forEach((button) => {
+    button.style.display = mountConnected ? 'block' : 'none';
+  });
+
   if (img.src == null ||! img.complete) {
     return;
   }
@@ -279,9 +283,11 @@ function drawFinderscope() {
   }
   const rad = deg2rad(scopeRotation);
   const card = img.parentElement;
-  const rotatedHeight = Math.abs(img.width * Math.sin(rad)) + Math.abs(img.height * Math.cos(rad));
-  img.style.transform = `translate(0px, ${(rotatedHeight - img.height)/2}px) rotate(${scopeRotation}deg)`;
-  card.style.height = `${rotatedHeight}px`;
+
+  const rotatedWidth = Math.abs(img.naturalWidth * Math.cos(rad)) + Math.abs(img.naturalHeight * Math.sin(rad));
+  const rotatedHeight = Math.abs(img.naturalWidth * Math.sin(rad)) + Math.abs(img.naturalHeight * Math.cos(rad));
+  let scale = Math.min(card.clientWidth / rotatedWidth, card.clientHeight / rotatedHeight);
+  img.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${scopeRotation}deg)`;
 
   const canvas = document.getElementById('finderscopeCanvas');
   canvas.width = card.clientWidth;
@@ -303,8 +309,8 @@ function drawFinderscope() {
     if (!pierSideWest && cameraFlipPierEast) {
       cameraRotation = (cameraRotation + 180) % 360;
     }
-    const rectWidth  = img.width  * (cameraFovX / scopeFovX);
-    const rectHeight = img.height * (cameraFovY / scopeFovY);
+    const rectWidth  = scale * img.width  * (cameraFovX / scopeFovX);
+    const rectHeight = scale * img.height * (cameraFovY / scopeFovY);
     const hw = rectWidth / 2;
     const hh = rectHeight / 2;
     const notchHW = 0.2 * hw;
@@ -673,6 +679,17 @@ function drawFocuserUi() {
 // Event handlers
 //////////////////////////////////
 
+document.getElementById('finderscopeFullscreen').addEventListener('click', (event) => {
+  if (!document.fullscreenElement) {
+    document.getElementById('finderscopeCard').requestFullscreen().catch(err => {
+      console.error(`Error attempting fullscreen: ${err.message}`);
+    });
+  }
+  else {
+    document.exitFullscreen();
+  }
+});
+
 document.getElementById('mapSearch').addEventListener('submit', (event) => {
   event.preventDefault();
 
@@ -1017,9 +1034,9 @@ function initFinderscope() {
     img.src = url;
     img.addEventListener("load", drawFinderscope);
     const observer = new ResizeObserver(drawFinderscope);
-    observer.observe(img);
+    observer.observe(img.parentElement);
 
-    document.getElementById('finderscopeCard').style.display = 'block';
+    document.getElementById('finderscopeCard').style.display = 'flex';
   }
 }
 
@@ -1119,11 +1136,13 @@ function handleIndiProp(data) {
           focuserConnected = null;
           indiBuffer.length = 0;
         }
+        drawFinderscope();
         drawSkyMap();
         drawOverlays();
       }
       else if (data.device == mount) {
         mountConnected = connected;
+        drawFinderscope();
         drawSkyMap();
         drawOverlays();
       }
@@ -1223,8 +1242,9 @@ function connect() {
     indiConnected = null;
     mountConnected = null;
     focuserConnected = null;
-    drawOverlays();
+    drawFinderscope();
     drawSkyMap();
+    drawOverlays();
     setTimeout(connect, 3000);
   };
 
