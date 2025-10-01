@@ -44,7 +44,7 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
                 "Camera": 30850,
                 "Eyepiece": 46850
             },
-            backlashComp: 50
+            "backlashComp": 50
         }
     },
     "mount": {

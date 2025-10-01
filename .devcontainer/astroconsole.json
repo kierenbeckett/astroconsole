@@ -1,0 +1,36 @@
+{
+    "devices": {
+        "Telescope Simulator": {
+            "reverseRa": true,
+            "reverseDecPierWest": false,
+            "reverseDecPierEast": false
+        },
+        "Focuser Simulator": {
+            "presets": {
+                "Camera with 2x Barlow": 28000,
+                "Camera": 30000,
+                "Eyepiece": 46000
+            },
+            "backlashComp": 50
+        }
+    },
+    "mount": {
+      "name": "Telescope Simulator"
+    },
+    "focuser": {
+      "name": "Focuser Simulator"
+    },
+    "finderscope": {
+        "url": "http://localhost:8080/finderscope_test.png",
+        "fovx": 5,
+        "fovy": 3,
+        "rotation": 0,
+        "flipPierEast": true
+    },
+    "camera": {
+        "fovx": 1,
+        "fovy": 0.5,
+        "rotation": 0,
+        "flipPierEast": true
+    }
+}

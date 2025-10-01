@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /workspaces/astroconsole
+
+trap 'kill 0' INT TERM EXIT
+
+{
+  indiserver -v indi_simulator_telescope indi_simulator_focus &
+  pid1=$!
+  python3 -u astroconsole.py &
+  pid2=$!
+
+  wait $pid1
+  wait $pid2
+} 2>&1
