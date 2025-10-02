@@ -377,3 +377,12 @@ input[type="text"]:focus {
   text-align: right;
   flex-grow: 1;
 }
+
+#focuserArb {
+  display: flex;
+  margin-top: 1rem;
+}
+
+#focuserArb input {
+  flex: 1;
+}

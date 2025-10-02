@@ -830,6 +830,25 @@ document.getElementById('abortFocus').addEventListener('click', (event) => {
   sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_ABORT_MOTION', 'keys': [{'key': 'ABORT', 'value': true}] });
 });
 
+document.getElementById('focuserArb').addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const focusPos = document.getElementById('focusNewPos');
+  focusPos.style.borderColor = '#555555';
+  const focusPosVal = parseInt(focusPos.value.trim());
+  if (isNaN(focusPosVal)) {
+    focusPos.style.borderColor = '#ff4d4d';
+  }
+  else {
+    sendIndiMsg({
+      cmd: 'number',
+      device: focuser,
+      name: 'ABS_FOCUS_POSITION',
+      keys: [{ key: 'FOCUS_ABSOLUTE_POSITION', value: focusPosVal }]
+    });
+  }
+});
+
 /////////////////////////////////
 // Gamepad
 //////////////////////////////////
