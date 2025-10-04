@@ -23,10 +23,9 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 
 ```
 {
-    "proxy": {
+    "webui": {
         "host": "0.0.0.0",
-        "port": 8080,
-        "websocketPort": 7626
+        "port": 8080
     },
     "indi": {
         "host": "127.0.0.1",
@@ -85,8 +84,6 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 |------------------------------------------|-----------|--------------|-------------|
 | webui.host                               | string    | 0.0.0.0      | Host to bind to for web UI |
 | webui.port                               | number    | 8080         | Port to listen on for the web UI |
-| proxy.host                               | string    | 0.0.0.0      | Host to bind to for web->INDI proxy |
-| proxy.port                               | number    | 7626         | Port to listen on for web->INDI proxy |
 | indi.host                                | string    | 127.0.0.1    | The INDI server host to connect to |
 | indi.port                                | number    | 7624         | The INDI server port to connect to |
 | devices.${mount_name}.reverseRa          | boolean   | false        | Reverse left/right buttons |
@@ -219,13 +216,6 @@ With additional tools, yes.
 
 * Use a VPN such as [Tailscale](https://tailscale.com/) or [WireGuard](https://www.wireguard.com/) to access your internal network remotely, then use the local IP as above.  
 * Proxy the web UI using a tunnel service such as [Ngrok](https://ngrok.com/) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). Make sure you configure some authentication.
-
-Note that there are at least a couple of ports that need to be exposed:
-
-* The web UI port, default 8080.
-* The web->INDI proxy port, default 7626.
-* If you have a local finderscope URL, the IP/port for that.
-* You do not need to expose the INDI port.
 
 ### How can I control my camera?
 

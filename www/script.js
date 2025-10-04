@@ -12,7 +12,7 @@ const SOLAR_SYSTEM_OBJ = {
 };
 
 // INDI
-const wsUrl = `ws://${window.location.hostname}:7626`;
+const wsUrl = `ws://${window.location.host}/ws`;
 let ws;
 let wsConnected = false;
 let indiConnected;

@@ -3,14 +3,9 @@ set -euo pipefail
 
 cd /workspaces/astroconsole
 
-trap 'kill 0' INT TERM EXIT
+trap 'kill 0' INT
 
-{
-  indiserver -v indi_simulator_telescope indi_simulator_focus &
-  pid1=$!
-  python3 -u astroconsole.py &
-  pid2=$!
+indiserver -v indi_simulator_telescope indi_simulator_focus &
+python3 -u astroconsole.py &
 
-  wait $pid1
-  wait $pid2
-} 2>&1
+wait

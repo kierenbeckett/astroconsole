@@ -1,15 +1,13 @@
 import argparse
 import asyncio
-import http.server
 import json
 import pathlib
-import socketserver
 import sys
 import xml.etree.ElementTree as ET
 
+from aiohttp import web
 from collections import defaultdict
 from datetime import datetime, timezone
-from websockets.asyncio.server import serve
 
 indi_state = {}
 indi_state['devices'] = defaultdict(dict)
@@ -22,6 +20,7 @@ indi_state['devices']['proxy'] = {
     }
 }
 clients = set()
+
 
 async def indi_connect(host, port):
     while True:
@@ -97,63 +96,72 @@ async def broadcast_json(obj):
     if clients:
         msg = json.dumps(obj)
         try:
-            await asyncio.gather(*(ws.send(msg) for ws in clients))
+            await asyncio.gather(*(ws.send_str(msg) for ws in clients))
         except Exception as e:
             print(f'Error broadcasting to websockets "{e}"')
 
 
-async def handle_client(websocket, config):
+async def handle_client(request, config):
     try:
+        websocket = web.WebSocketResponse()
+        await websocket.prepare(request)
+
         clients.add(websocket)
-        print(f'Accepted connection from {websocket.remote_address}')
+        print(f'Accepted connection from {request.transport.get_extra_info('peername')}')
 
         if pathlib.Path(config).exists():
             with open(config) as f:
-                await websocket.send(f.read())
+                await websocket.send_str(f.read())
         else:
-            await websocket.send(json.dumps({'devices': {}}))
+            await websocket.send_str(json.dumps({'devices': {}}))
 
         for k, v in indi_state['devices'].items():
             for prop in v.values():
-                await websocket.send(json.dumps(prop))
+                await websocket.send_str(json.dumps(prop))
 
         async for message in websocket:
-            data = json.loads(message)
+            if message.type == web.WSMsgType.TEXT:
+                data = json.loads(message.data)
 
-            if data['cmd'] == 'switch':
-                keys = ''.join([f'<oneSwitch name="{k['key']}">{'On' if k['value'] else 'Off'}</oneSwitch>' for k in data['keys']])
-                indi_state['writer'].write(f'<newSwitchVector device="{data['device']}" name="{data['name']}">{keys}</newSwitchVector>'.encode('ascii'))
+                if data['cmd'] == 'switch':
+                    keys = ''.join([f'<oneSwitch name="{k['key']}">{'On' if k['value'] else 'Off'}</oneSwitch>' for k in data['keys']])
+                    indi_state['writer'].write(f'<newSwitchVector device="{data['device']}" name="{data['name']}">{keys}</newSwitchVector>'.encode('ascii'))
 
-            elif data['cmd'] == 'number':
-                keys = ''.join([f'<oneNumber name="{k['key']}">{k['value']}</oneNumber>' for k in data['keys']])
-                indi_state['writer'].write(f'<newNumberVector device="{data['device']}" name="{data['name']}">{keys}</newNumberVector>'.encode('ascii'))
+                elif data['cmd'] == 'number':
+                    keys = ''.join([f'<oneNumber name="{k['key']}">{k['value']}</oneNumber>' for k in data['keys']])
+                    indi_state['writer'].write(f'<newNumberVector device="{data['device']}" name="{data['name']}">{keys}</newNumberVector>'.encode('ascii'))
 
-            elif data['cmd'] == 'config':
-                with open(config, 'w') as f:
-                    json.dump(data['config'], f, indent=4)
+                elif data['cmd'] == 'config':
+                    with open(config, 'w') as f:
+                        json.dump(data['config'], f, indent=4)
 
-            else:
-                print(f'Unknown command {data['cmd']}')
-
+                else:
+                    print(f'Unknown command {data['cmd']}')
+            elif msg.type == web.WSMsgType.ERROR:
+                print(f'Error with websocket "{websocket.exception()}"')
     except Exception as e:
         print(f'Error handling client connection "{e}"')
     finally:
-        print(f'Disconnected from {websocket.remote_address}')
+        print(f'Disconnected from {request.transport.get_extra_info('peername')}')
         clients.remove(websocket)
 
-
-async def start_websocket(host, port, config):
-    async with serve(lambda ws: handle_client(ws, config), host, port) as server:
-        print(f'Websocket server listening on {host}:{port}')
-        await server.serve_forever()
+    return websocket
 
 
-def start_static(host, port):
-    handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(*args, directory='www', **kwargs)
+async def root(request):
+    return web.FileResponse("www/index.html")
 
-    with socketserver.TCPServer((host, port), handler) as httpd:
-        print(f'Static HTTP server listening on port {port}')
-        httpd.serve_forever()
+
+async def start_webserver(host, port, config):
+    app = web.Application()
+    app.router.add_get("/", root)
+    app.router.add_get("/ws", lambda ws: handle_client(ws, config))
+    app.router.add_static("/", path="www", name="www")
+    runner = web.AppRunner(app)
+    await runner.setup()
+    print(f'Websocket server listening on {host}:{port}')
+    site = web.TCPSite(runner, host, port)
+    await site.start()
 
 
 async def main(args):
@@ -165,14 +173,11 @@ async def main(args):
 
     host = cfg.get("webui", {}).get("host", "0.0.0.0")
     port = cfg.get("webui", {}).get("port", 8080)
-    ws_host = cfg.get("proxy", {}).get("host", "0.0.0.0")
-    ws_port = cfg.get("proxy", {}).get("port", 7626)
     indi_host = cfg.get("indi", {}).get("host", "127.0.0.1")
     indi_port = cfg.get("indi", {}).get("port", 7624)
 
     await asyncio.gather(
-        asyncio.to_thread(start_static, host, port),
-        start_websocket(ws_host, ws_port, args.config),
+        start_webserver(host, port, args.config),
         indi_connect(indi_host, indi_port)
     )
 
@@ -188,4 +193,7 @@ if __name__ == '__main__':
         help='Location of config file (default: /etc/astroconsole/astroconsole.json)'
     )
 
-    asyncio.run(main(parser.parse_args()))
+    try:
+        asyncio.run(main(parser.parse_args()))
+    except KeyboardInterrupt:
+        print('Terminating')
