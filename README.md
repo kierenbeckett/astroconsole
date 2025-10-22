@@ -2,19 +2,28 @@
 
 ![AstroConsole Logo](www/android-chrome-192x192.png)
 
-AstroConsole is a web app for controlling your telescope. It is lightweight enough to be installed on a Raspberry Pi Zero 2. You can then remotely control your telescope from any web browser, mobile or desktop.
+AstroConsole allows you to control your telescope mount and focuser from any web browser. Simply install AstroConsole, connect it to your devices and visit the web UI.
 
-AstroConsole uses INDI for interfacing with devices. Currently mount and focuser control is supported.
+![Screenshot](docs/screenshot.png)
 
-![Desktop Screenshot](docs/screenshot_desktop.png)
+It also has the following features:
 
-![Mobile Screenshot](docs/screenshot_mobile.png)
+* Digital Finderscope - Mount any UVC webcam on your scope and view it from AstroConsole.
+* Gamepad Support - Connect a gamepad to your mobile and use it to control your telescope.
+* Lightweight - Can be installed on a Raspberry Pi Zero 2
+
+![Mobile Gamepad](docs/mobile_gamepad.png)
 
 ## Quick Start
+
+On the computer connected to your devices, normally this would be a Raspberry Pi or similar but could be your laptop:
 
 * Ensure you have INDI server running and connected to a mount and/or focuser.
 * Download the [latest release](https://github.com/kierenbeckett/astroconsole/releases/latest/download/astroconsole.deb)
 * Install it with `apt install ./astroconsole.deb`.
+
+On the computer you want to control the telescope from, normally a mobile or tablet:
+
 * Visit the web UI at `http://yourip:8080`.
 
 ## Config
@@ -25,7 +34,8 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 {
     "webui": {
         "host": "0.0.0.0",
-        "port": 8080
+        "port": 8080,
+        "leftHanded": false
     },
     "indi": {
         "host": "127.0.0.1",
@@ -53,7 +63,7 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
       "name": "ZWO EAF"
     },
     "finderscope": {
-        "url": "http://192.168.1.20:8080/finderscope_test.png",
+        "url": "http://yourip:8081/",
         "fovx": 5,
         "fovy": 3,
         "rotation": 0,
@@ -84,6 +94,7 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 |------------------------------------------|-----------|--------------|-------------|
 | webui.host                               | string    | 0.0.0.0      | Host to bind to for web UI |
 | webui.port                               | number    | 8080         | Port to listen on for the web UI |
+| webui.leftHanded                         | boolean   | false        | Flip the controls so they are easier to reach left handed |
 | indi.host                                | string    | 127.0.0.1    | The INDI server host to connect to |
 | indi.port                                | number    | 7624         | The INDI server port to connect to |
 | devices.${mount_name}.reverseRa          | boolean   | false        | Reverse left/right buttons |
@@ -93,7 +104,7 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 | devices.${focuser_name}.backlashComp     | map       | 0            | When focusing outward, overshoot by the given amount then correct with an inward focus to compensate for backlash |
 | mount.name                               | string    | *Autodetect* | The INDI device name for the mount, if not specified the first one seen will be used |
 | focuser.name                             | string    | *Autodetect* | The INDI device name for the focuser, if not specified the first one seen will be used |
-| finderscope.url                          | string    | *null*       | The URL of a video feed to a webcam being used as a finderscope, see below |
+| finderscope.url                          | string    | *Simulate*   | The URL of a video feed to a webcam being used as a finderscope, see below |
 | finderscope.fovx                         | number    | *null*       | The horizontal FOV of your finderscope in decimal degrees, used to draw FOV squares |
 | finderscope.fovy                         | number    | *null*       | The vertical FOV of your finderscope in decimal degrees, used to draw FOV squares |
 | finderscope.rotation                     | number    | 0            | The rotation of your finderscope on your rig, so the UI can match, see below |
@@ -115,11 +126,11 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
 
 Note that some properties need their INDI device name including e.g. `devices.${mount_name}.reverseRa` might be `devices."EQMod Mount".reverseRa`. This allows multiple mounts/focusers to be used without needing to change the config file each time.
 
-Changes to most config takes effect when reloading the web UI. You only need to restart AstroConsole when changing the `webui`, `proxy` and `indi` sections.
+Changes to most config takes effect when reloading the web UI. You only need to restart AstroConsole when changing the webui or indi host/port.
 
 ### Finderscope Webcam
 
-AstroConsole supports the use of a webcam as a digital finderscope. Your webcam needs to be streamable over HTTP, set the URL to your webcam using `finderscope.url`.
+AstroConsole supports the use of a webcam as a digital finderscope. Your webcam needs to be streamable over HTTP, set the URL to your webcam using `finderscope.url`. If you do not set a URL, a catalogue image is shown.
 
 If you are running AstroConsole on a Pi you can plug a webcam into the Pi and install [µStreamer](https://github.com/pikvm/ustreamer) to make it available over HTTP.
 
@@ -127,26 +138,22 @@ If you are running AstroConsole on a Pi you can plug a webcam into the Pi and in
 
 All the devices in AstroConsole should be aligned such that up is towards the north celestial pole. Configure your devices in the following order:
 
-**Sky Map**
-
-* The sky map is configured by default. It can be used to help align the other devices.
-
 **Mount Up/Down/Left/Right**
 
 * Move your mount to point east, low on the horizon.
-* Press left and the map should pan left, if it pans right set `devices.${mount_name}.reverseRa=true`.
-* Press up and the map should pan up, if it pans down set `devices.${mount_name}.reverseDecPierWest=true`.
+* Press left and the mount should pan left, if it pans right set `devices.${mount_name}.reverseRa=true`.
+* Press up and the mount should pan up, if it pans down set `devices.${mount_name}.reverseDecPierWest=true`.
 * Move your mount to point west, low on the horizon.
-* Press up and the map should pan up, if it pans down set `devices.${mount_name}.reverseDecPierEast=true`.
+* Press up and the mount should pan up, if it pans down set `devices.${mount_name}.reverseDecPierEast=true`.
 
 **Finderscope and Camera**
 
 * Move your mount to point east, low on the horizon.
 * If your finderscope is upright in this position leave `finderscope.rotation=0`.
 * If your finderscope is rotated clockwise 90 degrees set `finderscope.rotation=90`.
-* Reload AstroConsole, the view from the finderscope should match the view from the map and pressing left/up should pan left/up.
+* Reload AstroConsole, pressing left/up should pan left/up in the finderscope view.
 * Move your mount to point west, low on the horizon.
-* Normally at this point your camera will have flipped by 180, if so set `camera.flipPierEast=true`.
+* Normally at this point your finderscope will have flipped by 180, if so set `finderscope.flipPierEast=true`.
 * Repeat for your camera if required.
 
 ### Gamepad Support
@@ -217,9 +224,9 @@ With additional tools, yes.
 * Use a VPN such as [Tailscale](https://tailscale.com/) or [WireGuard](https://www.wireguard.com/) to access your internal network remotely, then use the local IP as above.  
 * Proxy the web UI using a tunnel service such as [Ngrok](https://ngrok.com/) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). Make sure you configure some authentication.
 
-### How can I control my camera?
+### How can I control my main camera?
 
-AstroConsole's main aim is to provide a lightweight way to control a telescope mount and focuser without needing a laptop. This is primarily to assist with visual astronomy. It can also be used as a companion app when doing planetary or DSO imaging, in conjunction with software such as FireCapture or Ekos, as follows:
+AstroConsole is primarily to assist with visual astronomy and does not support controlling your main camera. When doing planetary or DSO imaging you can connect a laptop with desktop software such as FireCapture or Ekos directly to your main camera. You can connect the desktop software to your mount/focuser via the same INDI server as AstroConsole:
 
 ```mermaid
 flowchart LR
@@ -237,25 +244,17 @@ flowchart LR
     L ---|Wi-Fi| PI
 ```
 
-This way you always have basic control of your rig via AstroConsole and can then quickly swap from visual to a full laptop setup by connecting a single cable to the camera, without disturbing your mount.
+This way you always have mount/focuser control via AstroConsole and can quickly swap from visual to a full imaging setup, without having to recalibrate your mount.
 
-To connect Ekos to your camera directly at the same time as your mount/focuser via the INDI running on the Pi you can use INDI chaining as follows:
+To connect Ekos to your camera directly and to your mount/focuser via the INDI used by AstronConsole you can use INDI chaining as follows:
 
-![EKOS Remote](docs/screenshot_ekosremote.png)
+![EKOS Remote](docs/ekosremote.png)
 
 Where the IP in the remote field is the IP of your Pi.
 
-Camera support may be added directly to AstroConsole at a later date.
-
 ### What frame of reference are the RA/Dec coordinates in?
 
-The coordinates returned by the mount are shown as-is on the telescope card, they are expected to be JNow[^1].
-
-The sky map also shows JNow:
-
- * When searching for the Sun, Moon, or planets, their JNow positions are calculated.
- * When searching for stars and deep-sky objects, their catalog J2000 positions are transformed into the equinox of date. These remain essentially heliocentric rather than topocentric, but for practical purposes the difference is negligible.
- * When entering coordinates they are expected to be JNow.
+The coordinates returned by the mount are shown as-is, they are expected to be JNow[^1].
 
 [^1]: **JNow** — Topocentric equatorial coordinates using the equinox of date (i.e. the RA/Dec you would expect after polar alignment, before any additional transformation).
 

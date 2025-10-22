@@ -9,150 +9,75 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <script type="text/javascript" src="astronomy.min.js" charset="utf-8"></script>
-  <script type="text/javascript" src="jquery-1.9.1.min.js" charset="utf-8"></script>
-  <script type="text/javascript" src="aladin.min.js" charset="utf-8"></script>
+  <script type="text/javascript" src="catalog.js" charset="utf-8"></script>
 </head>
 <body>
-  <main>
-    <div class="card" id="finderscopeCard">
-      <h2>Finderscope <button id="finderscopeFullscreen" title="Full Screen">🖥️</button></h2>
+  <img id="finderscope" />
+  <canvas id="finderscopeCanvas"></canvas>
 
-      <div id="finderscopeBorder">
-        <img id="finderscope" />
-        <canvas id="finderscopeCanvas"></canvas>
-        <button class="up" data-direction="up">▲</button>
-        <button class="left" data-direction="left">◀</button>
-        <button class="right" data-direction="right">▶</button>
-        <button class="down" data-direction="down">▼</button>
-      </div>
+  <div id="buttons" style="left: 1rem;">
+    <button id="fullscreen" title="Full Screen">⤡</button>
+    <button id="search" title="Search">🔍</button>
+  </div>
+
+  <canvas id="compass" width="120" height="120" style="left: 1rem;"></canvas>
+
+  <div id="stats" style="left: 1rem;">
+    <div>Lon:</div><div id="long"></div>
+    <div>Lat:</div><div id="lat"></div>
+    <div>RA:</div><div id="ra"></div>
+    <div>Dec:</div><div id="dec"></div>
+    <div>Az:</div><div id="az"></div>
+    <div>Alt:</div><div id="alt"></div>
+  </div>
+
+  <div id="slewButtons" style="right: 1rem;">
+    <button class="center" id="slewToggleTracking">🎯</button>
+    <button class="up" data-direction="up">▲</button>
+    <button class="left" data-direction="left">◀</button>
+    <button class="right" data-direction="right">▶</button>
+    <button class="down" data-direction="down">▼</button>
+    <button class="downleft" id="slewRate" title="Change Slew Rate">1x</button>
+    <button class="downright" id="slewPark" title="Park">P</button>
+  </div>
+
+  <div id="slewStatus" style="right: 1rem;"></div>
+  <button id="slewAbort" style="right: 1rem;">⛔ Abort</button>
+  <button id="slewUnpark" style="right: 1rem;">🚗 Unpark</button>
+
+  <div id="focuserButtons" style="right: 1rem;">
+    <button data-focus="FOCUS_INWARD" data-amount="100" title="Focus Inward Large">◀◀</button>
+    <button data-focus="FOCUS_INWARD" data-amount="10" title="Focus Inward Small">&nbsp;◀&nbsp;</button>
+    <button id="focuserPosition" title="Change Focuser Position">???</button>
+    <button data-focus="FOCUS_OUTWARD" data-amount="10" title="Focus Outward Small">&nbsp;▶&nbsp;</button>
+    <button data-focus="FOCUS_OUTWARD" data-amount="100" title="Focus Outward Large">▶▶</button>
+  </div>
+
+  <div id="focuserStatus" style="right: 1rem;"></div>
+  <button id="focuserAbort" style="right: 1rem">⛔ Abort</button>
+
+  <div id="overlay">
+    <div id="searchModal" style="left: 1rem;">
+      <input type="text" size="20" id="searchValue" placeholder="Object or Coordinates...">
+      <div id="searchResults"></div> 
     </div>
 
-    <div class="card" id="mapCard">
-      <h2>Sky Map</h2>
-
-      <form id="mapSearch">
-        <input type="text" id="searchText" placeholder="Enter an object or coordinates">
-        <button>🔎 Search</button>
-      </form>
-
-      <div id="aladin">
-        <div class="aladin-horizontal-list aladin-fov aladin-dark-theme" id="aladinPos"></div>
-      </div>
-
-      <div id="mapMountControls" class="control-box frame">
-        <button id="recenter">🔒 Lock</button>
-        <button id="sync">🔄 Sync</button>
-        <button id="goto">🎯 Goto</button>
-
-        <div id="mapButtonsOverlay" class="card-overlay">
-          <span id="mapButtonsOverlayMessage">🔌 Mount Disconnected</span>
-        </div>
-      </div>
+    <div id="focuserPositionModal" style="right: 1rem;">
+      <input type="text" size="8" id="focuserPositionNew">
+      <button id="focuserPositionSubmit">Focus</button>
+      <div id="focuserPresets"></div> 
     </div>
 
-    <div class="card" id="mountCard">
-      <h2><span id="mountTitle">Mount</span> <button id="mountReconnect" title="Reconnect">🔌</button></h2>
-
-      <div class="columns">
-        <div class="status">
-          <div class="pair"><span class="label">Status:</span> <span id="mountStatus">Idle</span></div>
-          <div class="pair"></div>
-          <div class="pair"><span class="label">Lon:</span> <span id="long"></span></div>
-          <div class="pair"><span class="label">Lat:</span> <span id="lat"></span></div>
-          <div class="pair"><span class="label">RA:</span> <span id="ra"></span></div>
-          <div class="pair"><span class="label">Dec:</span> <span id="dec"></span></div>
-          <div class="pair"><span class="label">Az:</span> <span id="az"></span></div>
-          <div class="pair"><span class="label">Alt:</span> <span id="alt"></span></div>
-        </div>
-        <canvas id="coordsIndicator" width="120" height="120"></canvas>
-      </div>
-
-      <div class="control-box frame">
-        <div id="slewGrid">
-          <button class="up" data-direction="up">▲</button>
-          <button class="left" data-direction="left">◀</button>
-          <button class="right" data-direction="right">▶</button>
-          <button class="down" data-direction="down">▼</button>
-        </div>
-
-        <div id="slewButtons">
-          <button id="park">🚗 Park</button>
-          <button id="toggleTracking">🔒 Track</button>
-
-          <div id="slewSlider">
-            <input type="range" id="slewRate" min="0" title="Slew Rate">
-            <span class="slider-value" id="slewValue"></span>
-          </div>
-
-          <div id="slewOverlay" class="card-overlay">
-            <span id="slewOverlayMessage">🚗 Parked</span>
-            <button id="unpark">Unpark</button>
-            <button id="abortGoto">⛔ Abort</button>
-          </div>
-        </div>
-      </div>
-      
-      <div id="mountOverlay" class="card-overlay">
-        <span id="mountOverlayMessage">🔌 Mount Disconnected</span>
-      </div>
+    <div id="slewRateModal" style="right: 1rem;">
+      <p id="slewRateValue"></p>
+      <input type="range" id="slewRateNew" min="0" title="Slew Rate">
     </div>
 
-    <div class="card" id="focuserCard">
-      <h2><span id="focuserTitle">Focuser</span> <button id="focuserReconnect" title="Reconnect">🔌</button></h2>
-
-      <div class="columns">
-        <div class="status">
-          <span class="label">Status:</span> <span id="focusStatus"></span>
-        </div>
-        <div class="status">
-          <span class="label">Positon:</span> <span id="focusPosition"></span>
-        </div>
-      </div>
-
-      <div class="frame">
-        <div class="control-box">
-          <button data-focus="FOCUS_INWARD" data-amount="100" title="Large Inward">◀◀</button>
-          <button data-focus="FOCUS_INWARD" data-amount="10" title="Small Inward">◀</button>
-          <button data-focus="FOCUS_OUTWARD" data-amount="10" title="Small Outward">▶</button>
-          <button data-focus="FOCUS_OUTWARD" data-amount="100" title="Large Outward">▶▶</button>
-        </div>
-
-        <div id="focuserAbs"></div>
-
-        <form id="focuserArb">
-          <input type="text" id="focusNewPos" placeholder="Enter a new focus position">
-          <button>Focus</button>
-        </form>
-
-        <div id="focuserControlsOverlay" class="card-overlay">
-          <span>🚀 Moving</span>
-          <button id="abortFocus">⛔ Abort</button>
-        </div>
-      </div>
-
-      <div id="focuserOverlay" class="card-overlay">
-        <span id="focuserOverlayMessage">🔌 Focuser Disconnected</span>
-      </div>
+    <div id="disconnectedModal">
+      <p id="disconnectedMessage">🔌 Disconnected from server</p>
+      <p>Reconnecting...</p>
     </div>
-
-    <div id="overlay">
-      <div>
-        <p id="overlayMessage">🔌 Disconnected from server</p>
-        <p>Reconnecting...</p>
-      </div>
-    </div>
-  </main>
-  <footer id="footer">
-    <p class="footer-top">
-      <img src="favicon-32x32.png" alt="AstroConsole Logo" class="footer-logo" />
-      AstroConsole v0.1
-    </p>
-    <p class="footer-bottom">
-      © 2025 <a href="https://kierenb.net" target="_blank">Kieren Beckett</a> | 
-      <a href="https://github.com/kierenbeckett/astroconsole" target="_blank">GitHub</a> | 
-      <a href="https://github.com/kierenbeckett/astroconsole/blob/main/LICENSE" target="_blank">GPLv3</a>
-    </p>
-  </footer>
+  </div>
 
   <script src="script.js"></script>
 </body>

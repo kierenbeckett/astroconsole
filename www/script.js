@@ -1,16 +1,3 @@
-const SOLAR_SYSTEM_OBJ = {
-  Sun:     { diameter: 1391400, color: "#FDB813" },
-  Moon:    { diameter: 3474,    color: "#C0C0C0" },
-  Mercury: { diameter: 4879,    color: "#B1B1B1" },
-  Venus:   { diameter: 12104,   color: "#EEDC82" },
-  Mars:    { diameter: 6779,    color: "#C1440E" },
-  Jupiter: { diameter: 142984,  color: "#D2B48C" },
-  Saturn:  { diameter: 120536,  color: "#F5DEB3" },
-  Uranus:  { diameter: 51118,   color: "#66FFFF" },
-  Neptune: { diameter: 49528,   color: "#4169E1" },
-  Pluto:   { diameter: 2376,    color: "#A9A9A9" }
-};
-
 // INDI
 const wsUrl = `ws://${window.location.host}/ws`;
 let ws;
@@ -18,6 +5,11 @@ let wsConnected = false;
 let indiConnected;
 const indiBuffer = [];
 let config = {devices: {}};
+
+// UI
+let leftHanded = false;
+let searchModal = false;
+let finderscopeLastUpdated = 0;
 
 // Mount
 let mount;
@@ -37,6 +29,7 @@ let doingGoto;
 let gotoPos;
 let tracking;
 let pierSideWest;
+let slewRateModal = false;
 
 // Focuser
 let focuser;
@@ -44,12 +37,7 @@ let focuserConnected;
 let doingFocus;
 let focusPosition;
 let completeBacklashComp;
-
-// Sky Map
-let aladin;
-let scopeOverlay;
-let planetOverlay;
-let scopeLocked = true;
+let focuserPositionModal = false;
 
 // Gamepad
 let gamepadActiveButtons = { 4: false, 5: false, 6: false, 7: false };
@@ -101,127 +89,50 @@ function parseRadec(input) {
   }
 }
 
-function rectangleCornersWithNotch(raDeg, decDeg, widthArcmin, heightArcmin, rotation) {
-  const center = Astronomy.VectorFromSphere({lon: raDeg, lat: decDeg, dist: 1}, new Date());
+function formatSlewRate(index) {
+  const base = (index + 1) + 'x'
+  if (base == slewRates[index].key) {
+    return base
+  }
+  return base + ' (' + slewRates[index].key + ')'
+}
 
-  const ra0 = deg2rad(raDeg);
-  const dec0 = deg2rad(decDeg);
-  const east  = { x: -Math.sin(ra0), y:  Math.cos(ra0), z: 0 };
-  const north = { x: -Math.cos(ra0) * Math.sin(dec0), y: -Math.sin(ra0) * Math.sin(dec0), z:  Math.cos(dec0) };
+function generatePlanets() {
+  for (const key in CATALOG) {
+    const entry = CATALOG[key];
 
-  const w  = deg2rad(widthArcmin / 60.0);
-  const h  = deg2rad(heightArcmin / 60.0);
-  const hw = w / 2.0;
-  const hh = h / 2.0;
-  const notchHW = 0.2 * hw;
-  const notchH  = 0.2 * hh;
+    if (entry.type == 'sso') {
+      const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
+      const j2000Pos = Astronomy.Equator(entry.name, new Date(), observer, false, true);
+      entry.ra = j2000Pos.ra;
+      entry.dec = j2000Pos.dec;
+    }
+  }
+}
 
-  const pa = deg2rad(rotation);
-  const cosPA = Math.cos(pa), sinPA = Math.sin(pa);
-  function rotate(x, y) {
-    return [x * cosPA - y * sinPA, x * sinPA + y * cosPA];
+function generateFinderscopeUrl() {
+  if (raHours == null || decDeg == null) {
+    return;
   }
 
-  const offsets = [
-    [-hw, -hh],              // bottom-left
-    [ hw, -hh],              // bottom-right
-    [ hw,  hh],              // top-right
-    [ notchHW, hh],          // notch base right
-    [ 0,       hh + notchH], // notch peak
-    [-notchHW, hh],          // notch base left
-    [-hw,  hh],              // top-left
-  ];
-
-  const corners = [];
-  for (const [x0, y0] of offsets) {
-    const [x, y] = rotate(x0, y0);
-
-    const dx = x * east.x + y * north.x;
-    const dy = x * east.y + y * north.y;
-    const dz = x * east.z + y * north.z;
-
-    const sigma = Math.sqrt(dx**2 + dy**2 + dz**2);
-
-    let point;
-    if (sigma === 0) {
-      point = {x: center.x, y: center.y, z: center.z};
-    }
-    else {
-      const s = Math.sin(sigma) / sigma;
-      const c = Math.cos(sigma);
-      point = {
-        x: center.x * c + dx * s,
-        y: center.y * c + dy * s,
-        z: center.z * c + dz * s,
-      }
-    }
-
-    const radec = Astronomy.EquatorFromVector(point);
-    corners.push([radec.ra * 15, radec.dec]);
+  if (Date.now() - finderscopeLastUpdated < 60000) {
+    return;
   }
 
-  return corners;
-}
-
-/**
- * Convert from EOD to J2000 coordinates.
- * 
- * Returns {ra, dec} where ra is in hours.
- */
-function precessEodToJ2000(raHours, decDeg, date=new Date()) {
-  decDeg = decDeg == 90 ? 89.9999 : decDeg;
-  let M = Astronomy.Rotation_EQD_EQJ(date);
-  let v = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
-  v = Astronomy.RotateVector(M, v);
-  return Astronomy.EquatorFromVector(v);
-}
-
-/**
- * Convert from EOD to J2000 coordinates.
- * 
- * Returns {ra, dec} where ra is in hours.
- */
-function precessJ2000ToEod(raHours, decDeg, date=new Date()) {
-  decDeg = decDeg == 90 ? 89.9999 : decDeg;
-  let M = Astronomy.Rotation_EQJ_EQD(date);
-  let v = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
-  v = Astronomy.RotateVector(M, v);
-  return Astronomy.EquatorFromVector(v);
-}
-
-const J2000_POLE_IN_EOD = precessJ2000ToEod(0, 89.9999);
-
-function northVector(pos, pole) {
-  const dot = pos.x * pole.x + pos.y * pole.y + pos.z * pole.z;
-  const nx = pole.x - dot * pos.x;
-  const ny = pole.y - dot * pos.y;
-  const nz = pole.z - dot * pos.z;
-  const norm = Math.sqrt(nx * nx + ny * ny + nz * nz);
-  return {x: nx / norm, y: ny / norm, z: nz / norm};
-}
-
-function signedAngleBetween(v1, v2, normal) {
-  const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
-  const cross = {
-    x: v1.y * v2.z - v1.z * v2.y,
-    y: v1.z * v2.x - v1.x * v2.z,
-    z: v1.x * v2.y - v1.y * v2.x
-  };
-  const dotNorm = cross.x * normal.x + cross.y * normal.y + cross.z * normal.z;
-  const angle = Math.atan2(dotNorm, dot);
-  return (rad2deg(angle) + 360) % 360;
-}
-
-/**
- * Gives the rotation needed to rotate a J2000 frame to an EOD frame.
- * 
- * Returns the rotation in degrees between 0 and 360 clockwise.
- */
-function precessRotation(raHours, decDeg) {
-  const pos = Astronomy.VectorFromSphere({lon: raHours * 15, lat: decDeg, dist: 1}, new Date());
-  const j2000North = northVector(pos, Astronomy.VectorFromSphere({lon: J2000_POLE_IN_EOD.ra * 15, lat: J2000_POLE_IN_EOD.dec, dist: 1}, new Date()));
-  const north = northVector(pos, Astronomy.VectorFromSphere({lon: 0, lat: 89.9999, dist: 1}, new Date()));
-  return signedAngleBetween(j2000North, north, pos);
+  let width = document.body.clientWidth;
+  let height = document.body.clientHeight;
+  const scale = Math.min(800 / width, 800 / height, 1);
+  width = Math.round(width * scale);
+  height = Math.round(height * scale);
+  (config.finderscope ??= {}).fovx = 5;
+  (config.finderscope ??= {}).fovy = height * 5 / width;
+  const fov = Math.max(config.finderscope?.fovx, config.finderscope?.fovy);
+  (config.finderscope ??= {}).rotation = 0;
+  (config.finderscope ??= {}).flipPierEast = false;
+  const raDeg = raHours * 15;
+  // TODO convert from jnow to ICRS
+  document.getElementById('finderscope').src = `https://alasky.unistra.fr/hips-image-services/hips2fits?hips=CDS/P/DSS2/color&ra=${raDeg}&dec=${decDeg}&fov=${fov}&width=${width}&height=${height}&projection=TAN&format=png`;
+  finderscopeLastUpdated = Date.now();
 }
 
 /////////////////////////////////
@@ -230,49 +141,51 @@ function precessRotation(raHours, decDeg) {
 
 function drawOverlays() {
   if (!wsConnected) {
-    document.getElementById('overlayMessage').textContent = '🔌 Disconnected from webserver';
-    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('disconnectedModal').style.display = 'block';
+    document.getElementById('disconnectedMessage').textContent = '🔌 Disconnected from webserver';
+    document.getElementById('searchModal').style.display = 'none';
+    document.getElementById('slewRateModal').style.display = 'none';
+    document.getElementById('focuserPositionModal').style.display = 'none';
   }
   else if (!indiConnected) {
-    document.getElementById('overlayMessage').textContent = '🔌 Disconnected from INDI';
-    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('disconnectedModal').style.display = 'block';
+    document.getElementById('disconnectedMessage').textContent = '🔌 Disconnected from INDI';
+    document.getElementById('searchModal').style.display = 'none';
+    document.getElementById('slewRateModal').style.display = 'none';
+    document.getElementById('focuserPositionModal').style.display = 'none';
+  }
+  else if (searchModal) {
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('disconnectedModal').style.display = 'none';
+    document.getElementById('searchModal').style.display = 'block';
+    document.getElementById('slewRateModal').style.display = 'none';
+    document.getElementById('focuserPositionModal').style.display = 'none';
+  }
+  else if (slewRateModal) {
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('disconnectedModal').style.display = 'none';
+    document.getElementById('searchModal').style.display = 'none';
+    document.getElementById('slewRateModal').style.display = 'block';
+    document.getElementById('focuserPositionModal').style.display = 'none';
+  }
+  else if (focuserPositionModal) {
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('disconnectedModal').style.display = 'none';
+    document.getElementById('searchModal').style.display = 'none';
+    document.getElementById('slewRateModal').style.display = 'none';
+    document.getElementById('focuserPositionModal').style.display = 'block';
   }
   else {
     document.getElementById('overlay').style.display = 'none';
-
-    if (mountConnected == null) {
-      document.getElementById('mountOverlayMessage').textContent = '🔌 Mount Not Found';
-      document.getElementById('mountOverlay').style.display = 'flex';
-    }
-    else if (!mountConnected) {
-      document.getElementById('mountOverlayMessage').textContent = '🔌 Mount Disconnected';
-      document.getElementById('mountOverlay').style.display = 'flex';
-    }
-    else {
-      document.getElementById('mountOverlay').style.display = 'none';
-    }
-    if (focuserConnected == null) {
-      document.getElementById('focuserOverlayMessage').textContent = '🔌 Focuser Not Found';
-      document.getElementById('focuserOverlay').style.display = 'flex';
-    }
-    else if (!focuserConnected) {
-      document.getElementById('focuserOverlayMessage').textContent = '🔌 Focuser Disconnected';
-      document.getElementById('focuserOverlay').style.display = 'flex';
-    }
-    else {
-      document.getElementById('focuserOverlay').style.display = 'none';
-    }
   }
 }
 
 function drawFinderscope() {
   const img = document.getElementById('finderscope');
 
-  document.querySelectorAll('[data-direction]').forEach((button) => {
-    button.style.display = mountConnected ? 'block' : 'none';
-  });
-
-  if (img.src == null ||! img.complete) {
+  if (!img.src || !img.complete) {
     return;
   }
 
@@ -288,6 +201,7 @@ function drawFinderscope() {
   const rotatedHeight = Math.abs(img.naturalWidth * Math.sin(rad)) + Math.abs(img.naturalHeight * Math.cos(rad));
   let scale = Math.min(card.clientWidth / rotatedWidth, card.clientHeight / rotatedHeight);
   img.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${scopeRotation}deg)`;
+  img.style.display = 'block';
 
   const canvas = document.getElementById('finderscopeCanvas');
   canvas.width = card.clientWidth;
@@ -296,7 +210,6 @@ function drawFinderscope() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const cx = canvas.width / 2;
   const cy = canvas.height / 2;
-  let drawReticle = true;
 
   // Draw camera FOV
   const scopeFovX = config.finderscope?.fovx;
@@ -315,10 +228,6 @@ function drawFinderscope() {
     const hh = rectHeight / 2;
     const notchHW = 0.2 * hw;
     const notchH = 0.2 * hh;
-
-    if (rectWidth < 50 || rectHeight < 50) {
-      drawReticle = false;
-    }
 
     const offsets = [
       [-hw, -hh],               // bottom-left
@@ -344,12 +253,10 @@ function drawFinderscope() {
     ctx.stroke();
     ctx.restore();
   }
-
-  // Draw reticle
-  if (drawReticle) {
+  else {
     const gap = 5;
     const len = 10;
-    ctx.strokeStyle = '#b232b2';
+    ctx.strokeStyle = '#f39c12';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cx, cy - gap);
@@ -362,107 +269,6 @@ function drawFinderscope() {
     ctx.lineTo(cx + gap + len, cy);
     ctx.stroke();
   }
-}
-
-function drawSkyMap() {
-  if (aladin == null) {
-    return;
-  }
-
-  if (!mountConnected || raHours == null || decDeg == null) {
-    scopeOverlay.hide();
-    if (mountConnected == null) {
-      document.getElementById('mapButtonsOverlayMessage').textContent = '🔌 Mount Not Found';
-    }
-    else {
-      document.getElementById('mapButtonsOverlayMessage').textContent = '🔌 Mount Disconnected';
-    }
-    document.getElementById('mapButtonsOverlay').style.display = 'flex';
-    return;
-  }
-
-  if (parking) {
-    document.getElementById('mapButtonsOverlayMessage').textContent = '🚗 Parking';
-    document.getElementById('mapButtonsOverlay').style.display = 'flex';
-  }
-  else if (parked) {
-    document.getElementById('mapButtonsOverlayMessage').textContent = '🚗 Parked';
-    document.getElementById('mapButtonsOverlay').style.display = 'flex';
-  }
-  else if (doingGoto) {
-    document.getElementById('mapButtonsOverlayMessage').textContent = '🎯 Going to target';
-    document.getElementById('mapButtonsOverlay').style.display = 'flex';
-  }
-  else if (scopeLocked) {
-    document.getElementById('mapButtonsOverlayMessage').textContent = '🔒 Locked onto scope';
-    document.getElementById('mapButtonsOverlay').style.display = 'flex';
-  }
-  else {
-    document.getElementById('mapButtonsOverlay').style.display = 'none';
-  }
-
-  const j2000ReticlePos = aladin.getRaDec();
-  const reticlePos = precessJ2000ToEod(j2000ReticlePos[0] / 15, j2000ReticlePos[1]);
-  document.getElementById('aladinPos').textContent = `${formatHours(reticlePos.ra)} ${formatDegrees(reticlePos.dec, true)}`;
-
-  const j2000MountPos = precessEodToJ2000(raHours, decDeg);
-  const j2000MountRotation = precessRotation(raHours, decDeg);
-
-  if (scopeLocked) {
-    aladin.gotoRaDec(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec);
-    aladin.setRotation(j2000MountRotation);
-  }
-  else {
-    const j2000ReticleRotation = precessRotation(reticlePos.ra, reticlePos.dec);
-    aladin.setRotation(j2000ReticleRotation);
-  }
-
-  scopeOverlay.removeAll();
-
-  const scopeFovX = config.finderscope?.fovx;
-  const scopeFovY = config.finderscope?.fovy;
-  if (scopeFovX && scopeFovY) {
-    let finderscopeRotation = (config.finderscope?.rotation ?? 0) + j2000MountRotation;
-    const scopeFlipPierEast = config.finderscope?.flipPierEast ?? false;
-    if (!pierSideWest && scopeFlipPierEast) {
-      finderscopeRotation = (finderscopeRotation + 180) % 360;
-    }
-    corners = rectangleCornersWithNotch(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec, scopeFovX * 60, scopeFovY * 60, finderscopeRotation);
-    scopeOverlay.add(A.polygon(corners));
-  }
-
-  const cameraFovX = config.camera?.fovx;
-  const cameraFovY = config.camera?.fovy;
-  if (cameraFovX && cameraFovY) {
-    let cameraRotation = (config.camera?.rotation ?? 0) + j2000MountRotation;
-    const cameraFlipPierEast = config.camera?.flipPierEast ?? false;
-    if (!pierSideWest && cameraFlipPierEast) {
-      cameraRotation = (cameraRotation + 180) % 360;
-    }
-    corners = rectangleCornersWithNotch(j2000MountPos.ra * 15, j2000MountPos.dec == 90 ? 89.9999 : j2000MountPos.dec, cameraFovX * 60, cameraFovY * 60, cameraRotation);
-    scopeOverlay.add(A.polygon(corners));
-  }
-
-  const eodPoleInJ2000 = precessEodToJ2000(0, 89.9999);
-  scopeOverlay.add(A.circle(eodPoleInJ2000.ra * 15, eodPoleInJ2000.dec, 0.04, {color: 'green'})); 
-  //scopeOverlay.add(A.circle(0, 89.9999, 0.04, {color: 'red'}));
-
-  scopeOverlay.show();
-}
-
-function drawPlanets() {
-  if (planetOverlay == null) {
-    return;
-  }
-
-  planetOverlay.removeAll();
-
-  Object.entries(SOLAR_SYSTEM_OBJ).forEach(([sso, props]) => {
-    const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
-    const j2000Pos = Astronomy.Equator(sso, new Date(), observer, false, true);
-    const diameterDeg = rad2deg(props.diameter / (j2000Pos.dist * Astronomy.KM_PER_AU));
-    planetOverlay.add(A.circle(j2000Pos.ra * 15, j2000Pos.dec, diameterDeg / 2, {color: props.color, fillColor: props.color}));
-  });
 }
 
 function drawMountPosition() {
@@ -480,7 +286,7 @@ function drawMountPosition() {
   document.getElementById('az').textContent = formatDegrees(result.azimuth);
   document.getElementById('alt').textContent = formatDegrees(result.altitude, true);
 
-  const canvas = document.getElementById('coordsIndicator');
+  const canvas = document.getElementById('compass');
   const ctx = canvas.getContext('2d');
   const size = canvas.width;
   const center = size / 2;
@@ -498,6 +304,13 @@ function drawMountPosition() {
   ctx.fillText("S", center, center + radius + 7);
   ctx.fillText("W", center - radius - 7, center);
   ctx.fillText("E", center + radius + 7, center);
+
+  // Draw outer circle background (Dec=0°)
+  ctx.fillStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(center, center, radius, 0, Math.PI * 2);
+  ctx.fill();
 
   // Draw Dec rings (0°, 30°, 60°)
   ctx.strokeStyle = '#555555';
@@ -557,119 +370,97 @@ function drawMountPosition() {
 }
 
 function drawMountUi() {
-  const overlay = document.getElementById('slewOverlay');
-  const overlayMessage = document.getElementById('slewOverlayMessage');
-  const statusEl = document.getElementById('mountStatus');
-  const trackingBtn = document.getElementById('toggleTracking');
-  const unparkBtn = document.getElementById('unpark');
-  const abortGotoBtn = document.getElementById('abortGoto');
+  const buttons = document.getElementById('slewButtons');
+  const status = document.getElementById('slewStatus');
+  const trackingBtn = document.getElementById('slewToggleTracking');
+  const unparkBtn = document.getElementById('slewUnpark');
+  const abortBtn = document.getElementById('slewAbort');
 
-  if (parking) {
-    statusEl.textContent = '🚗 Parking';
-    statusEl.style.color = '#f39c12';
-    overlayMessage.textContent = '🚗 Parking';
-    overlay.style.display = 'flex';
+  if (mountConnected == null) {
+    buttons.style.display = 'none';
+    status.textContent = '🔌 Mount Not Found';
+    status.style.display = 'block';
+    abortBtn.style.display = 'none';
     unparkBtn.style.display = 'none';
-    abortGotoBtn.style.display = 'flex';
+  }
+  else if (!mountConnected) {
+    buttons.style.display = 'none';
+    status.textContent = '🔌 Mount Disconnected';
+    status.style.display = 'block';
+    abortBtn.style.display = 'none';
+    unparkBtn.style.display = 'none';
+  }
+  else if (parking) {
+    buttons.style.display = 'none';
+    status.textContent = '🚗 Parking';
+    status.style.display = 'block';
+    abortBtn.style.display = 'block';
+    unparkBtn.style.display = 'none';
   }
   else if (parked) {
-    statusEl.textContent = '🚗 Parked';
-    statusEl.style.color = '#ff4d4d';
-    overlayMessage.textContent = '🚗 Parked';
-    overlay.style.display = 'flex';
+    buttons.style.display = 'none';
+    status.style.display = 'none';
+    abortBtn.style.display = 'none';
     unparkBtn.style.display = 'block';
-    abortGotoBtn.style.display = 'none';
-  }
-  else if (motionNs || motionWe) {
-    statusEl.textContent = `🚀 Moving`;
-    statusEl.style.color = '#f39c12';
   }
   else if (doingGoto) {
-    statusEl.textContent = '🎯 Going to target';
-    statusEl.style.color = '#f39c12';
-    overlayMessage.textContent = '🎯 Going to target';
-    overlay.style.display = 'flex';
+    buttons.style.display = 'none';
+    status.textContent = '🎯 Going to target';
+    status.style.display = 'block';
+    abortBtn.style.display = 'block';
     unparkBtn.style.display = 'none';
-    abortGotoBtn.style.display = 'flex';
-  }
-  else if (tracking) {
-    statusEl.textContent = '🔒 Tracking';
-    statusEl.style.color = '#2e7d32';
-    trackingBtn.textContent = '🔓 Stop Tracking';
   }
   else {
-    statusEl.textContent = 'Idle';
-    statusEl.style.color = '#fff';
+    buttons.style.display = 'grid';
+    status.style.display = 'none';
+    abortBtn.style.display = 'none';
+    unparkBtn.style.display = 'none';
   }
 
-  if (!parked && !parking && !doingGoto) {
-    overlay.style.display = 'none';
+  if (tracking) {
+    trackingBtn.title = 'Tracking';
+    trackingBtn.style.filter = '';
   }
-
-  if (!tracking) {
-    trackingBtn.textContent = '🔒 Track';
+  else {
+    trackingBtn.title = 'Not Tracking';
+    trackingBtn.style.filter = 'grayscale(100%)';
   }
 
   if (slewRates != null && slewIndex != null) {
-    document.getElementById('slewRate').value = slewIndex;
-    document.getElementById('slewRate').max = slewRates.length - 1;
-    document.getElementById('slewValue').textContent = slewRates[slewIndex].key;
+    document.getElementById('slewRate').textContent = (slewIndex + 1) + 'x';
   }
 }
 
 function drawFocuserUi() {
-  const presetsLst = Object.entries(config.devices[focuser]?.presets ?? {}).map(([name, value]) => ({ name, value }));
-  presetsLst.sort((a, b) => a.value - b.value);
+  const buttons = document.getElementById('focuserButtons');
+  const status = document.getElementById('focuserStatus');
+  const abortBtn = document.getElementById('focuserAbort');
 
-  const focuserAbs = document.getElementById('focuserAbs');
-  focuserAbs.innerHTML = "";
-  presetsLst.forEach(preset => {
-    const label = document.createElement('label');
-
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'focusAbs';
-    input.value = preset.value;
-
-    const valueSpan = document.createElement('span');
-    valueSpan.textContent = preset.value;
-
-    const titleSpan = document.createElement('span');
-    titleSpan.className = 'title';
-    titleSpan.textContent = preset.name;
-
-    label.appendChild(input);
-    label.appendChild(valueSpan);
-    label.appendChild(titleSpan);
-
-    focuserAbs.appendChild(label);
-  });
-
-  document.querySelectorAll('input[name="focusAbs"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      sendIndiMsg({'cmd': 'number', 'device': focuser, 'name': 'ABS_FOCUS_POSITION', 'keys': [{'key': 'FOCUS_ABSOLUTE_POSITION', 'value': parseInt(radio.value)}] });
-    });
-  });
-
-  if (doingFocus == null || focusPosition == null) {
-    return;
+  if (focuserConnected == null) {
+    buttons.style.display = 'none';
+    status.textContent = '🔌 Focuser Not Found';
+    status.style.display = 'block';
+    abortBtn.style.display = 'none';
   }
-
-  const overlay = document.getElementById('focuserControlsOverlay');
-  const statusElFocus = document.getElementById('focusStatus');
-
-  if (doingFocus) {
-    statusElFocus.textContent = '🚀 Moving';
-    statusElFocus.style.color = '#ff4d4d';
-    overlay.style.display = 'flex';
+  else if (!focuserConnected) {
+    buttons.style.display = 'none';
+    status.textContent = '🔌 Focuser Disconnected';
+    status.style.display = 'block';
+    abortBtn.style.display = 'none';
+  }
+  else if (doingFocus) {
+    buttons.style.display = 'none';
+    status.textContent = '🚀 Focusing';
+    status.style.display = 'block';
+    abortBtn.style.display = 'block';
   }
   else {
-    statusElFocus.textContent = 'Idle';
-    statusElFocus.style.color = '#fff';
-    overlay.style.display = 'none';
+    buttons.style.display = 'block';
+    status.style.display = 'none';
+    abortBtn.style.display = 'none';
   }
 
-  document.getElementById('focusPosition').textContent = focusPosition;
+  document.getElementById('focuserPosition').textContent = focusPosition;
   document.querySelectorAll('input[name="focusAbs"]').forEach(radio => {
     radio.checked = parseInt(radio.value) == focusPosition;
   });
@@ -679,9 +470,9 @@ function drawFocuserUi() {
 // Event handlers
 //////////////////////////////////
 
-document.getElementById('finderscopeFullscreen').addEventListener('click', (event) => {
+document.getElementById('fullscreen').addEventListener('click', (event) => {
   if (!document.fullscreenElement) {
-    document.getElementById('finderscopeCard').requestFullscreen().catch(err => {
+    document.documentElement.requestFullscreen().catch(err => {
       console.error(`Error attempting fullscreen: ${err.message}`);
     });
   }
@@ -690,85 +481,100 @@ document.getElementById('finderscopeFullscreen').addEventListener('click', (even
   }
 });
 
-document.getElementById('mapSearch').addEventListener('submit', (event) => {
-  event.preventDefault();
+document.getElementById('search').addEventListener('click', (event) => {
+  searchModal = true;
+  drawOverlays();
+  document.getElementById('searchValue').focus();
+});
 
-  const search = document.getElementById('searchText');
-  search.style.borderColor = '#555555';
-  const searchVal = search.value.trim().toLowerCase();
-  if (searchVal) {
-    const pos = parseRadec(searchVal);
-    if (pos) {
-      const j2000Pos = precessEodToJ2000(pos.raHours, pos.decDeg);
-      const j2000Rotation = precessRotation(pos.raHours, pos.decDeg);
+document.getElementById('searchValue').addEventListener('input', (event) => {
+  const search = document.getElementById('searchValue').value.trim().toLowerCase();
 
-      aladin.gotoRaDec(j2000Pos.ra * 15, j2000Pos.dec);
-      aladin.setRotation(j2000Rotation);
-      scopeLocked = false;
-      drawSkyMap();
-      return;
-    }
+  const resultsDiv = document.getElementById('searchResults');
+  resultsDiv.innerHTML = "";
 
-    const sso = Object.keys(SOLAR_SYSTEM_OBJ).find(obj => obj.toLowerCase() == searchVal);
-    if (sso) {
-      const observer = new Astronomy.Observer(lat || 0, long || 0, elevation || 0);
-      const pos = Astronomy.Equator(sso, new Date(), observer, true, true);
-      const j2000Pos = precessEodToJ2000(pos.ra, pos.dec);
-      const j2000Rotation = precessRotation(pos.ra, pos.dec);
-
-      aladin.gotoRaDec(j2000Pos.ra * 15, j2000Pos.dec);
-      aladin.setRotation(j2000Rotation);
-      scopeLocked = false;
-      drawSkyMap();
-      return;
-    }
-
-    aladin.gotoObject(searchVal, {success: function(raDec) {
-      scopeLocked = false;
-      drawSkyMap();
-    }, error: function() {
-      search.style.borderColor = '#ff4d4d';
-    }});
+  if (search.length < 3 || search == 'ngc') {
+    return;
   }
-});
 
-document.getElementById('recenter').addEventListener('click', (event) => {
-  scopeLocked = true;
-  drawSkyMap();
-});
+  const pos = parseRadec(search);
+  if (pos) {
+    const label = document.createElement('button');
+    label.dataset.raHours = pos.raHours;
+    label.dataset.decDeg = pos.decDeg;
+    label.textContent = '🧭 ' + formatHours(pos.raHours) + ', ' + formatDegrees(pos.decDeg);
 
-document.getElementById('sync').addEventListener('click', (event) => {
-  const j2000Pos = aladin.getRaDec();
-  const pos = precessJ2000ToEod(j2000Pos[0] / 15, j2000Pos[1]);
-  sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'ON_COORD_SET', 'keys': [{'key': 'SYNC', 'value': true}] });
-  sendIndiMsg({
-    cmd: 'number',
-    device: mount,
-    name: 'EQUATORIAL_EOD_COORD',
-    keys: [
-      { key: 'RA', value: pos.ra },
-      { key: 'DEC', value: pos.dec }
-    ]
+    resultsDiv.appendChild(label);
+  }
+
+  for (const key in CATALOG) {
+    const entry = CATALOG[key];
+
+    if (entry.alt.some(n => n.toLowerCase().includes(search))) {
+      const label = document.createElement('button');
+      label.dataset.raHours = entry.ra;
+      label.dataset.decDeg = entry.dec;
+      let icon = '🌌';
+      if (entry.name == 'Sun') {
+        icon = '☀️';
+      }
+      else if (entry.name == 'Moon') {
+        icon = '🌕';
+      }
+      else if (entry.type == 'sso') {
+        icon = '🪐';
+      }
+      else if (entry.type == 'star') {
+        icon = '⭐';
+      }
+      label.textContent = icon + ' ' + entry.name;
+
+      resultsDiv.appendChild(label);
+
+      if (resultsDiv.children.length >= 7) {
+        break;
+      }
+    }
+  }
+
+  document.querySelectorAll('[data-ra-hours]').forEach(button => {
+    button.addEventListener('click', () => {
+      // TODO convert from ICRS to jnow
+      gotoPos = {ra: parseFloat(button.dataset.raHours), dec: parseFloat(button.dataset.decDeg)}
+      sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'ON_COORD_SET', 'keys': [{'key': 'TRACK', 'value': true}] });
+      sendIndiMsg({
+        cmd: 'number',
+        device: mount,
+        name: 'EQUATORIAL_EOD_COORD',
+        keys: [
+          { key: 'RA', value: gotoPos.ra },
+          { key: 'DEC', value: gotoPos.dec }
+        ]
+      });
+
+      searchModal = false;
+      drawOverlays();
+    });
   });
 });
 
-document.getElementById('goto').addEventListener('click', (event) => {
-  const j2000Pos = aladin.getRaDec();
-  gotoPos = precessJ2000ToEod(j2000Pos[0] / 15, j2000Pos[1]);
-  sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'ON_COORD_SET', 'keys': [{'key': 'TRACK', 'value': true}] });
-  sendIndiMsg({
-    cmd: 'number',
-    device: mount,
-    name: 'EQUATORIAL_EOD_COORD',
-    keys: [
-      { key: 'RA', value: gotoPos.ra },
-      { key: 'DEC', value: gotoPos.dec }
-    ]
-  });
+document.getElementById('compass').addEventListener('click', (event) => {
+  document.getElementById('compass').style.display = 'none';
+  document.getElementById('stats').style.display = 'grid';
 });
 
-document.getElementById('mountReconnect').addEventListener('click', (event) => {
-  sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'CONNECTION', 'keys': [{'key': 'DISCONNECT', 'value': true}] });
+document.getElementById('stats').addEventListener('click', (event) => {
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('compass').style.display = 'block';
+});
+
+document.getElementById('overlay').addEventListener('click', (event) => {
+  if (document.getElementById('overlay') == event.target) {
+    searchModal = false;
+    slewRateModal = false;
+    focuserPositionModal = false;
+    drawOverlays();
+  }
 });
 
 document.querySelectorAll('[data-direction]').forEach((button) => {
@@ -794,30 +600,36 @@ document.querySelectorAll('[data-direction]').forEach((button) => {
   button.addEventListener('pointercancel', stop);
 });
 
-document.getElementById('slewRate').addEventListener('input', () => {
-  sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_SLEW_RATE', 'keys': [{'key': slewRates[parseInt(document.getElementById('slewRate').value, 10)].key, 'value': true}] });
+document.getElementById('slewRate').addEventListener('click', (event) => {
+  const slewRate = document.getElementById('slewRateNew');
+  slewRate.value = slewIndex;
+  slewRate.max = slewRates.length - 1;
+  document.getElementById('slewRateValue').textContent = formatSlewRate(slewIndex);
+  slewRateModal = true;
+  drawOverlays();
 });
 
-document.getElementById('toggleTracking').addEventListener('click', (event) => {
+document.getElementById('slewRateNew').addEventListener('input', () => {
+  const newIndex = parseInt(document.getElementById('slewRateNew').value, 10);
+  document.getElementById('slewRateValue').textContent = formatSlewRate(newIndex);
+  sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_SLEW_RATE', 'keys': [{'key': slewRates[newIndex].key, 'value': true}] });
+});
+
+document.getElementById('slewToggleTracking').addEventListener('click', (event) => {
   const key = tracking ? 'TRACK_OFF' : 'TRACK_ON';
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_TRACK_STATE', 'keys': [{'key': key, 'value': true}] });
 });
 
-document.getElementById('park').addEventListener('click', (event) => {
-  scopeLocked = false;
+document.getElementById('slewPark').addEventListener('click', (event) => {
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_PARK', 'keys': [{'key': 'PARK', 'value': true}] });
 });
 
-document.getElementById('unpark').addEventListener('click', (event) => {
+document.getElementById('slewUnpark').addEventListener('click', (event) => {
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_PARK', 'keys': [{'key': 'UNPARK', 'value': true}] });
 });
 
-document.getElementById('abortGoto').addEventListener('click', (event) => {
+document.getElementById('slewAbort').addEventListener('click', (event) => {
   sendIndiMsg({'cmd': 'switch', 'device': mount, 'name': 'TELESCOPE_ABORT_MOTION', 'keys': [{'key': 'ABORT', 'value': true}] });
-});
-
-document.getElementById('focuserReconnect').addEventListener('click', (event) => {
-  sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'CONNECTION', 'keys': [{'key': 'DISCONNECT', 'value': true}] });
 });
 
 document.querySelectorAll('[data-focus]').forEach(button => {
@@ -826,14 +638,44 @@ document.querySelectorAll('[data-focus]').forEach(button => {
   });
 });
 
-document.getElementById('abortFocus').addEventListener('click', (event) => {
-  sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_ABORT_MOTION', 'keys': [{'key': 'ABORT', 'value': true}] });
+document.getElementById('focuserPosition').addEventListener('click', (event) => {
+  const focusPos = document.getElementById('focuserPositionNew');
+  focusPos.style.borderColor = '#555555';
+  focusPos.value = focusPosition;
+
+  const presetsLst = Object.entries(config.devices[focuser]?.presets ?? {}).map(([name, value]) => ({ name, value }));
+  presetsLst.sort((a, b) => a.value - b.value);
+
+  const presetsDiv = document.getElementById('focuserPresets');
+  presetsDiv.innerHTML = "";
+  presetsLst.forEach(preset => {
+    const label = document.createElement('button');
+    label.dataset.preset = preset.value;
+    label.textContent = preset.value + ' - ' + preset.name;
+
+    presetsDiv.appendChild(label);
+  });
+
+  document.querySelectorAll('[data-preset]').forEach(button => {
+    button.addEventListener('click', () => {
+      sendIndiMsg({
+        'cmd': 'number',
+        'device': focuser,
+        'name': 'ABS_FOCUS_POSITION',
+        'keys': [{'key': 'FOCUS_ABSOLUTE_POSITION', 'value': button.dataset.preset}]
+      });
+      focuserPositionModal = false;
+      drawOverlays();
+    });
+  });
+
+  focuserPositionModal = true;
+  drawOverlays();
+  focusPos.focus();
 });
 
-document.getElementById('focuserArb').addEventListener('submit', (event) => {
-  event.preventDefault();
-
-  const focusPos = document.getElementById('focusNewPos');
+document.getElementById('focuserPositionSubmit').addEventListener('click', (event) => {
+  const focusPos = document.getElementById('focuserPositionNew');
   focusPos.style.borderColor = '#555555';
   const focusPosVal = parseInt(focusPos.value.trim());
   if (isNaN(focusPosVal)) {
@@ -846,7 +688,13 @@ document.getElementById('focuserArb').addEventListener('submit', (event) => {
       name: 'ABS_FOCUS_POSITION',
       keys: [{ key: 'FOCUS_ABSOLUTE_POSITION', value: focusPosVal }]
     });
+    focuserPositionModal = false;
+    drawOverlays();
   }
+});
+
+document.getElementById('focuserAbort').addEventListener('click', (event) => {
+  sendIndiMsg({'cmd': 'switch', 'device': focuser, 'name': 'FOCUS_ABORT_MOTION', 'keys': [{'key': 'ABORT', 'value': true}] });
 });
 
 /////////////////////////////////
@@ -868,7 +716,7 @@ setInterval(() => {
 
   if (magnitude >= 0.2) {
     if (gamepadFastRateIndex == null) {
-      gamepadFastRateIndex = parseInt(document.getElementById("slewRate").value, 10);
+      gamepadFastRateIndex = slewIndex;
     }
     const slowIndex = Math.floor(gamepadFastRateIndex / 2);
     const rateIndex = magnitude > 0.6 ? gamepadFastRateIndex : slowIndex;
@@ -1044,86 +892,34 @@ function sendIndiMsg(msg) {
   ws.send(JSON.stringify(msg));
 }
 
-function initFinderscope() {
-  const url = config.finderscope?.url;
-  if (url != null) {
-    console.log(`Setting finderscope url to ${url}`);
-
-    const img = document.getElementById('finderscope');
-    img.src = url;
-    img.addEventListener("load", drawFinderscope);
-    const observer = new ResizeObserver(drawFinderscope);
-    observer.observe(img.parentElement);
-
-    document.getElementById('finderscopeCard').style.display = 'flex';
-  }
-}
-
-function initAladin() {
-  A.init.then(() => {
-    const scopeFovX = config.finderscope?.fovx;
-    const cameraFovX = config.camera?.fovx;
-
-    aladin = A.aladin('#aladin', {
-      fov: scopeFovX * 1.5 || cameraFovX * 15 || 6,
-      showProjectionControl: false,
-      showFullscreenControl: false,
-      showLayersControl: false,
-      showFrame: false,
-      showCooLocation: false,
-      showZoomControl: false,
-      reticleColor: '#b232b2'
-    });
-
-    scopeOverlay = A.graphicOverlay({color: '#f39c12', lineWidth: 1});
-    aladin.addOverlay(scopeOverlay);
-
-    planetOverlay = A.graphicOverlay({lineWidth: 1});
-    aladin.addOverlay(planetOverlay);
-    setInterval(drawPlanets, 60000);
-    drawPlanets();
-
-    aladin.on('positionChanged', function(j2000PosChanged) {
-      if (j2000PosChanged.dragging) {
-        scopeLocked = false;
-        drawSkyMap();
-      }
-    });
-
-    drawSkyMap();
-  });
-}
-
-function initMount() {
-  if (mount == null) {
-    return;
-  }
-
-  document.getElementById('mountTitle').textContent = mount;
-  document.getElementById('mountCard').style.display = 'block';
-  document.getElementById('mapMountControls').style.display = 'flex';
-  setInterval(drawMountPosition, 1000);
-}
-
-function initFocuser() {
-  if (focuser == null) {
-    return;
-  }
-
-  document.getElementById('focuserTitle').textContent = focuser;
-  document.getElementById('focuserCard').style.display = 'block';
-  drawFocuserUi();
-}
-
 function handleIndiProp(data) {
     if (data.name == null) {
       config = data;
-      initAladin();
-      initFinderscope();
       mount = config.mount?.name;
-      initMount();
       focuser = config.focuser?.name;
-      initFocuser();
+
+      const img = document.getElementById('finderscope');
+      if (config.finderscope?.url != null) {
+        console.log(`Setting finderscope url to ${config.finderscope?.url}`);
+        img.src = config.finderscope?.url;
+      }
+      img.addEventListener("load", drawFinderscope);
+      const observer = new ResizeObserver(drawFinderscope);
+      observer.observe(img.parentElement);
+
+      if (config.webui?.leftHanded && !leftHanded) {
+        document.querySelectorAll('*').forEach(el => {
+          if (el.style.left) {
+            el.style.right = el.style.left;
+            el.style.left = null;
+          }
+          else if (el.style.right) {
+            el.style.left = el.style.right;
+            el.style.right = null;
+          }
+        });
+        leftHanded = true;
+      }
       return;
     }
 
@@ -1131,14 +927,12 @@ function handleIndiProp(data) {
       mount = data.device;
       console.log(`Detected mount ${mount}`);
       indiBuffer.forEach(handleIndiProp);
-      initMount();
     }
 
     if (focuser == null && data.name == 'ABS_FOCUS_POSITION') {
       focuser = data.device;
       console.log(`Detected focuser ${focuser}`);
       indiBuffer.forEach(handleIndiProp);
-      initFocuser();
     }
 
     if (indiBuffer.length >= 50) {
@@ -1155,19 +949,19 @@ function handleIndiProp(data) {
           focuserConnected = null;
           indiBuffer.length = 0;
         }
-        drawFinderscope();
-        drawSkyMap();
         drawOverlays();
+        drawFinderscope();
+        drawMountUi();
+        drawFocuserUi();
       }
       else if (data.device == mount) {
         mountConnected = connected;
         drawFinderscope();
-        drawSkyMap();
-        drawOverlays();
+        drawMountUi();
       }
       else if (data.device == focuser) {
         focuserConnected = connected;
-        drawOverlays();
+        drawFocuserUi();
       }
     }
 
@@ -1175,7 +969,6 @@ function handleIndiProp(data) {
       parking = data.state == 'Busy';
       parked = data.keys.find(item => item.key == 'PARK').value;
       drawMountUi();
-      drawSkyMap();
     }
 
     if (data.device == mount && data.name == 'TELESCOPE_TRACK_STATE') {
@@ -1193,7 +986,8 @@ function handleIndiProp(data) {
       long = data.keys.find(item => item.key == 'LONG').value;
       lat = data.keys.find(item => item.key == 'LAT').value;
       elevation = data.keys.find(item => item.key == 'ELEV').value;
-      drawPlanets();
+      generatePlanets();
+      drawMountPosition();
     }
 
     if (data.device == mount && data.name == 'EQUATORIAL_EOD_COORD') {
@@ -1201,7 +995,8 @@ function handleIndiProp(data) {
       raHours = data.keys.find(item => item.key == 'RA').value;
       decDeg = data.keys.find(item => item.key == 'DEC').value;
       drawMountUi();
-      drawSkyMap();
+      drawMountPosition();
+      generateFinderscopeUrl();
     }
 
     if (data.device == mount && data.name == 'TELESCOPE_MOTION_NS') {
@@ -1217,7 +1012,6 @@ function handleIndiProp(data) {
     if (data.device == mount && data.name == 'TELESCOPE_PIER_SIDE') {
       pierSideWest = data.keys.find(item => item.key == 'PIER_WEST').value;
       drawFinderscope();
-      drawSkyMap();
     }
 
     if (data.device == focuser && data.name == 'ABS_FOCUS_POSITION') {
@@ -1262,8 +1056,9 @@ function connect() {
     mountConnected = null;
     focuserConnected = null;
     drawFinderscope();
-    drawSkyMap();
     drawOverlays();
+    drawMountUi();
+    drawFocuserUi();
     setTimeout(connect, 3000);
   };
 
@@ -1272,4 +1067,6 @@ function connect() {
   };
 }
 
+generatePlanets();
 connect();
+setInterval(drawMountPosition, 1000);
