@@ -2,7 +2,7 @@
 
 ![AstroConsole Logo](www/android-chrome-192x192.png)
 
-AstroConsole allows you to control your telescope mount and focuser from any web browser. Simply install AstroConsole, connect it to your devices and visit the web UI.
+AstroConsole allows you to control your telescope mount and focuser from any web browser.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -63,7 +63,7 @@ Config can be added to `/etc/astroconsole/astroconsole.json`
       "name": "ZWO EAF"
     },
     "finderscope": {
-        "url": "http://yourip:8081/",
+        "url": "http://yourip:8081/stream",
         "fovx": 5,
         "fovy": 3,
         "rotation": 0,

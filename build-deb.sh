@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="astroconsole"
-VERSION="0.1"
+VERSION="0.2"
 ARCH="all"
 MAINTAINER="Kieren Beckett <mail@kierenb.net>"
 DESCRIPTION="AstroConsole, Telescope Control Webapp"

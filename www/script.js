@@ -111,7 +111,7 @@ function generatePlanets() {
 }
 
 function generateFinderscopeUrl() {
-  if (raHours == null || decDeg == null) {
+  if (raHours == null || decDeg == null || config.finderscope?.url != null) {
     return;
   }
 
