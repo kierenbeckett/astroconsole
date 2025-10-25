@@ -781,10 +781,18 @@ setInterval(() => {
   Object.keys(gamepadActiveDirs).forEach(dir => {
     const shouldBeActive = stickDirs[dir] || dpadDirs[dir];
     if (shouldBeActive && !gamepadActiveDirs[dir]) {
+      document.querySelectorAll('[data-direction="' + dir + '"]').forEach(button => {
+        button.style.backgroundColor = '#f39c12';
+      });
+
       sendMotionCommand(dir, true);
       gamepadActiveDirs[dir] = true;
     }
     else if (!shouldBeActive && gamepadActiveDirs[dir]) {
+      document.querySelectorAll('[data-direction="' + dir + '"]').forEach(button => {
+        button.style.backgroundColor = '';
+      });
+
       sendMotionCommand(dir, false);
       gamepadActiveDirs[dir] = false;
     }
@@ -801,6 +809,14 @@ setInterval(() => {
     const pressed = gp.buttons[button]?.pressed || false;
 
     if (pressed && !gamepadActiveButtons[button]) {
+      document.querySelectorAll('[data-focus="' + direction + '"][data-amount="' + amount + '"]').forEach(button => {
+        button.style.backgroundColor = '#f39c12';
+
+        setTimeout(() => {
+          button.style.backgroundColor = '';
+        }, 300);
+      });
+
       sendFocuserCommand(direction, amount);
     }
 
